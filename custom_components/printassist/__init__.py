@@ -170,7 +170,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     www_path = Path(__file__).parent / "www"
     await hass.http.async_register_static_paths([
         StaticPathConfig(
-            url_path="/printassist",
+            url_path="/printassist_static",
             path=str(www_path),
             cache_headers=False,
         ),
@@ -189,7 +189,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             "name": "printassist-panel",
             "embed_iframe": False,
             "trust_external": False,
-            "module_url": "/printassist/printassist-panel.js",
+            "module_url": "/printassist_static/printassist-panel.js",
         }},
         require_admin=False,
     )
