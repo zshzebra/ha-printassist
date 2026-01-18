@@ -1,53 +1,74 @@
 """Scheduler for optimizing print queue based on availability windows."""
-
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from .store import Part, UnavailabilityWindow
+    from .store import Plate, Job, UnavailabilityWindow
+
+LONG_UNAVAILABILITY_THRESHOLD = 3 * 3600
+SCHEDULE_HORIZON_DAYS = 7
+
+
+def _make_aware(dt: datetime) -> datetime:
+    """Ensure datetime is timezone-aware (UTC)."""
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
+def _parse_datetime(iso_str: str) -> datetime:
+    """Parse ISO datetime string to timezone-aware datetime."""
+    dt = datetime.fromisoformat(iso_str)
+    return _make_aware(dt)
 
 
 @dataclass
-class ScheduledPrint:
-    part_id: str
-    name: str
-    estimated_start: datetime
-    estimated_end: datetime
-    fits_in_window: bool
+class ScheduledJob:
+    job_id: str
+    plate_id: str
+    plate_name: str
+    plate_number: int
+    source_filename: str
+    scheduled_start: datetime
+    scheduled_end: datetime
+    estimated_duration_seconds: int
+    spans_unavailability: bool
+    thumbnail_path: str | None = None
 
 
 class PrintScheduler:
-    """Optimizes print queue based on availability windows."""
+    """Optimizes print queue using two-phase greedy with lookahead."""
 
     def __init__(
         self,
-        pending_parts: list[Part],
+        queued_jobs: list[Job],
+        plates_by_id: dict[str, Plate],
         unavailability_windows: list[UnavailabilityWindow],
         current_time: datetime | None = None,
-        printer_busy_until: datetime | None = None,
+        active_job_end: datetime | None = None,
     ) -> None:
-        self._parts = sorted(pending_parts, key=lambda p: -p.priority)
-        self._now = current_time or datetime.now()
-        self._printer_free_at = printer_busy_until or self._now
+        self._queued_jobs = queued_jobs
+        self._plates = plates_by_id
+        self._now = _make_aware(current_time) if current_time else datetime.now(timezone.utc)
+        self._cursor = _make_aware(active_job_end) if active_job_end else self._now
         self._windows = self._parse_windows(unavailability_windows)
+        self._horizon = self._now + timedelta(days=SCHEDULE_HORIZON_DAYS)
 
     def _parse_windows(
         self, windows: list[UnavailabilityWindow]
     ) -> list[tuple[datetime, datetime]]:
-        """Parse unavailability windows into datetime tuples."""
         parsed = []
         for w in windows:
-            start = datetime.fromisoformat(w.start)
-            end = datetime.fromisoformat(w.end)
+            start = _parse_datetime(w.start)
+            end = _parse_datetime(w.end)
             if end > self._now:
-                parsed.append((start, end))
+                parsed.append((max(start, self._now), end))
         return sorted(parsed, key=lambda x: x[0])
 
     def _find_next_unavailability(self, after: datetime) -> tuple[datetime, datetime] | None:
-        """Find the next unavailability window starting after given time."""
         for start, end in self._windows:
             if start > after:
                 return (start, end)
@@ -56,82 +77,132 @@ class PrintScheduler:
         return None
 
     def _is_during_unavailability(self, time: datetime) -> tuple[datetime, datetime] | None:
-        """Check if a time falls during an unavailability window."""
         for start, end in self._windows:
             if start <= time < end:
                 return (start, end)
         return None
 
-    def _get_availability_end(self, start_time: datetime) -> datetime | None:
-        """Get when the current availability window ends."""
-        window = self._find_next_unavailability(start_time)
-        if window and window[0] <= start_time:
-            return None
-        return window[0] if window else None
+    def _get_job_info(self, job: Job) -> tuple[Plate | None, int]:
+        plate = self._plates.get(job.plate_id)
+        if not plate:
+            return None, 0
+        return plate, plate.estimated_duration_seconds
 
-    def calculate_schedule(self) -> list[ScheduledPrint]:
-        """Calculate optimized print schedule."""
-        schedule: list[ScheduledPrint] = []
-        current_time = self._printer_free_at
+    def _build_remaining(self) -> list[tuple[Job, Plate, int]]:
+        remaining = []
+        for job in self._queued_jobs:
+            plate = self._plates.get(job.plate_id)
+            if plate:
+                remaining.append((job, plate, plate.estimated_duration_seconds))
+        remaining.sort(key=lambda x: (-x[1].priority, -x[2]))
+        return remaining
 
-        during_window = self._is_during_unavailability(current_time)
+    def calculate_schedule(self) -> list[ScheduledJob]:
+        schedule: list[ScheduledJob] = []
+        cursor = self._cursor
+
+        during_window = self._is_during_unavailability(cursor)
         if during_window:
-            current_time = during_window[1]
+            cursor = during_window[1]
 
-        remaining_parts = list(self._parts)
+        remaining = self._build_remaining()
 
-        while remaining_parts:
-            availability_end = self._get_availability_end(current_time)
+        while remaining and cursor < self._horizon:
+            next_unavail = self._find_next_unavailability(cursor)
 
-            if availability_end:
-                available_duration = (availability_end - current_time).total_seconds()
+            if next_unavail and next_unavail[0] <= cursor:
+                cursor = next_unavail[1]
+                continue
+
+            if next_unavail:
+                available_time = (next_unavail[0] - cursor).total_seconds()
+                unavail_duration = (next_unavail[1] - next_unavail[0]).total_seconds()
             else:
-                available_duration = float("inf")
+                available_time = float("inf")
+                unavail_duration = 0
 
-            fitting_parts = [
-                p for p in remaining_parts
-                if p.estimated_duration_seconds <= available_duration
-            ]
-
-            if fitting_parts:
-                next_part = fitting_parts[0]
-                duration = timedelta(seconds=next_part.estimated_duration_seconds)
-                schedule.append(ScheduledPrint(
-                    part_id=next_part.id,
-                    name=next_part.name,
-                    estimated_start=current_time,
-                    estimated_end=current_time + duration,
-                    fits_in_window=True,
-                ))
-                current_time = current_time + duration
-                remaining_parts.remove(next_part)
-            else:
-                if availability_end:
-                    window = self._find_next_unavailability(current_time)
-                    if window:
-                        current_time = window[1]
-                else:
-                    next_part = remaining_parts[0]
-                    duration = timedelta(seconds=next_part.estimated_duration_seconds)
-                    schedule.append(ScheduledPrint(
-                        part_id=next_part.id,
-                        name=next_part.name,
-                        estimated_start=current_time,
-                        estimated_end=current_time + duration,
-                        fits_in_window=False,
+            if next_unavail and unavail_duration >= LONG_UNAVAILABILITY_THRESHOLD:
+                fitting = [(j, p, d) for j, p, d in remaining if d <= available_time]
+                if fitting:
+                    job, plate, duration = fitting[0]
+                    end_time = cursor + timedelta(seconds=duration)
+                    schedule.append(ScheduledJob(
+                        job_id=job.id,
+                        plate_id=plate.id,
+                        plate_name=plate.name,
+                        plate_number=plate.plate_number,
+                        source_filename=plate.source_filename,
+                        scheduled_start=cursor,
+                        scheduled_end=end_time,
+                        estimated_duration_seconds=duration,
+                        spans_unavailability=False,
+                        thumbnail_path=plate.thumbnail_path,
                     ))
-                    current_time = current_time + duration
-                    remaining_parts.remove(next_part)
+                    cursor = end_time
+                    remaining.remove((job, plate, duration))
+                else:
+                    long_jobs = [(j, p, d) for j, p, d in remaining if d > available_time]
+                    if long_jobs:
+                        job, plate, duration = long_jobs[0]
+                        end_time = cursor + timedelta(seconds=duration)
+                        schedule.append(ScheduledJob(
+                            job_id=job.id,
+                            plate_id=plate.id,
+                            plate_name=plate.name,
+                            plate_number=plate.plate_number,
+                            source_filename=plate.source_filename,
+                            scheduled_start=cursor,
+                            scheduled_end=end_time,
+                            estimated_duration_seconds=duration,
+                            spans_unavailability=True,
+                            thumbnail_path=plate.thumbnail_path,
+                        ))
+                        cursor = end_time
+                        remaining.remove((job, plate, duration))
+                    else:
+                        cursor = next_unavail[1]
+            elif next_unavail:
+                fitting = [(j, p, d) for j, p, d in remaining if d <= available_time]
+                if fitting:
+                    fitting.sort(key=lambda x: -x[2])
+                    job, plate, duration = fitting[0]
+                    end_time = cursor + timedelta(seconds=duration)
+                    schedule.append(ScheduledJob(
+                        job_id=job.id,
+                        plate_id=plate.id,
+                        plate_name=plate.name,
+                        plate_number=plate.plate_number,
+                        source_filename=plate.source_filename,
+                        scheduled_start=cursor,
+                        scheduled_end=end_time,
+                        estimated_duration_seconds=duration,
+                        spans_unavailability=False,
+                        thumbnail_path=plate.thumbnail_path,
+                    ))
+                    cursor = end_time
+                    remaining.remove((job, plate, duration))
+                else:
+                    cursor = next_unavail[1]
+            else:
+                for job, plate, duration in remaining:
+                    end_time = cursor + timedelta(seconds=duration)
+                    schedule.append(ScheduledJob(
+                        job_id=job.id,
+                        plate_id=plate.id,
+                        plate_name=plate.name,
+                        plate_number=plate.plate_number,
+                        source_filename=plate.source_filename,
+                        scheduled_start=cursor,
+                        scheduled_end=end_time,
+                        estimated_duration_seconds=duration,
+                        spans_unavailability=False,
+                        thumbnail_path=plate.thumbnail_path,
+                    ))
+                    cursor = end_time
+                remaining = []
 
         return schedule
 
-    def get_next_recommended(self) -> Part | None:
-        """Get the next recommended part to print."""
+    def get_next_recommended(self) -> ScheduledJob | None:
         schedule = self.calculate_schedule()
-        if not schedule:
-            return None
-
-        for part in self._parts:
-            if part.id == schedule[0].part_id:
-                return part
-        return None
+        return schedule[0] if schedule else None

@@ -37,6 +37,7 @@ def ws_get_data(
     msg: dict,
 ) -> None:
     store: PrintAssistStore = hass.data[DOMAIN]["store"]
+    coordinator: PrintAssistCoordinator = hass.data[DOMAIN]["coordinator"]
 
     projects = []
     for project in store.get_projects():
@@ -49,21 +50,10 @@ def ws_get_data(
 
     plates = [asdict(p) for p in store.get_plates()]
     jobs = [asdict(j) for j in store.get_jobs()]
-    queued_jobs = store.get_queued_jobs()
 
     schedule = []
-    for job in sorted(queued_jobs, key=lambda j: -store.get_plate(j.plate_id).priority if store.get_plate(j.plate_id) else 0):
-        plate = store.get_plate(job.plate_id)
-        if plate:
-            schedule.append({
-                "job_id": job.id,
-                "plate_id": plate.id,
-                "plate_name": plate.name,
-                "plate_number": plate.plate_number,
-                "source_filename": plate.source_filename,
-                "thumbnail_path": plate.thumbnail_path,
-                "estimated_duration_seconds": plate.estimated_duration_seconds,
-            })
+    if coordinator.data and "schedule" in coordinator.data:
+        schedule = coordinator.data["schedule"]
 
     connection.send_result(msg["id"], {
         "projects": projects,

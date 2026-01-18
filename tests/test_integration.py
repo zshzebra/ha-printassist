@@ -3,12 +3,18 @@
 import pytest
 import pytest_asyncio
 from unittest.mock import MagicMock, AsyncMock, patch
+from datetime import datetime
 
 import sys
 sys.path.insert(0, str(__file__).rsplit("/", 2)[0])
 
-from custom_components.printassist.store import PrintAssistStore, Project, Part
-from custom_components.printassist.const import PART_STATUS_PENDING, PART_STATUS_COMPLETED
+from custom_components.printassist.store import PrintAssistStore, Project, Plate, Job
+from custom_components.printassist.const import (
+    JOB_STATUS_QUEUED,
+    JOB_STATUS_PRINTING,
+    JOB_STATUS_COMPLETED,
+    JOB_STATUS_FAILED,
+)
 
 
 class TestPrintAssistStore:
@@ -31,16 +37,16 @@ class TestPrintAssistStore:
         assert project.name == "Test Project"
         assert project.notes == "Some notes"
         assert project.id is not None
-        assert len(store.projects) == 1
+        assert len(store.get_projects()) == 1
 
     @pytest.mark.asyncio
     async def test_delete_project(self, store):
         project = await store.async_create_project("To Delete")
-        assert len(store.projects) == 1
+        assert len(store.get_projects()) == 1
 
         deleted = await store.async_delete_project(project.id)
         assert deleted is True
-        assert len(store.projects) == 0
+        assert len(store.get_projects()) == 0
 
     @pytest.mark.asyncio
     async def test_delete_nonexistent_project(self, store):
@@ -48,101 +54,190 @@ class TestPrintAssistStore:
         assert deleted is False
 
     @pytest.mark.asyncio
-    async def test_add_part(self, store):
+    async def test_add_plates(self, store):
         project = await store.async_create_project("Project")
-        part = await store.async_add_part(
+
+        plate = Plate.create(
             project_id=project.id,
+            source_filename="benchy.3mf",
+            plate_number=1,
             name="Benchy",
-            filename="benchy.3mf",
-            thumbnail_path="/local/thumb.png",
+            gcode_path="proj_1",
             estimated_duration_seconds=3600,
+            thumbnail_path="/local/thumb.png",
         )
+        await store.async_add_plates([plate])
 
-        assert part is not None
-        assert part.name == "Benchy"
-        assert part.status == PART_STATUS_PENDING
-        assert len(store.parts) == 1
+        plates = store.get_plates(project.id)
+        assert len(plates) == 1
+        assert plates[0].name == "Benchy"
+
+        jobs = store.get_jobs(plate_id=plate.id)
+        assert len(jobs) == 1
+        assert jobs[0].status == JOB_STATUS_QUEUED
 
     @pytest.mark.asyncio
-    async def test_add_part_to_nonexistent_project(self, store):
-        part = await store.async_add_part(
-            project_id="nonexistent",
-            name="Part",
-            filename="part.gcode",
+    async def test_set_plate_quantity(self, store):
+        project = await store.async_create_project("Project")
+        plate = Plate.create(
+            project_id=project.id,
+            source_filename="test.3mf",
+            plate_number=1,
+            name="Test",
+            gcode_path="proj_1",
+            estimated_duration_seconds=1800,
         )
-        assert part is None
+        await store.async_add_plates([plate])
+
+        queued_before = len(store.get_jobs(plate_id=plate.id, status=JOB_STATUS_QUEUED))
+        assert queued_before == 1
+
+        await store.async_set_plate_quantity(plate.id, 3)
+        queued_after = len(store.get_jobs(plate_id=plate.id, status=JOB_STATUS_QUEUED))
+        assert queued_after == 3
+
+        await store.async_set_plate_quantity(plate.id, 1)
+        queued_final = len(store.get_jobs(plate_id=plate.id, status=JOB_STATUS_QUEUED))
+        assert queued_final == 1
 
     @pytest.mark.asyncio
-    async def test_update_part_status(self, store):
+    async def test_set_plate_priority(self, store):
         project = await store.async_create_project("Project")
-        part = await store.async_add_part(project.id, "Part", "part.gcode")
+        plate = Plate.create(
+            project_id=project.id,
+            source_filename="test.3mf",
+            plate_number=1,
+            name="Test",
+            gcode_path="proj_1",
+            estimated_duration_seconds=1800,
+        )
+        await store.async_add_plates([plate])
 
-        updated = await store.async_update_part_status(part.id, PART_STATUS_COMPLETED)
-        assert updated is True
-
-        updated_part = await store.async_get_part(part.id)
-        assert updated_part.status == PART_STATUS_COMPLETED
-
-    @pytest.mark.asyncio
-    async def test_get_pending_parts(self, store):
-        project = await store.async_create_project("Project")
-        await store.async_add_part(project.id, "Part1", "p1.gcode")
-        await store.async_add_part(project.id, "Part2", "p2.gcode")
-
-        part3 = await store.async_add_part(project.id, "Part3", "p3.gcode")
-        await store.async_update_part_status(part3.id, PART_STATUS_COMPLETED)
-
-        pending = store.get_pending_parts()
-        assert len(pending) == 2
-
-    @pytest.mark.asyncio
-    async def test_set_part_priority(self, store):
-        project = await store.async_create_project("Project")
-        part = await store.async_add_part(project.id, "Part", "part.gcode")
-
-        await store.async_set_part_priority(part.id, 10)
-        updated = await store.async_get_part(part.id)
+        await store.async_set_plate_priority(plate.id, 10)
+        updated = store.get_plate(plate.id)
         assert updated.priority == 10
 
     @pytest.mark.asyncio
-    async def test_delete_project_cascades_parts(self, store):
+    async def test_delete_project_cascades(self, store):
         project = await store.async_create_project("Project")
-        await store.async_add_part(project.id, "Part1", "p1.gcode")
-        await store.async_add_part(project.id, "Part2", "p2.gcode")
+        plate1 = Plate.create(
+            project_id=project.id,
+            source_filename="p1.3mf",
+            plate_number=1,
+            name="Plate1",
+            gcode_path="proj_1",
+            estimated_duration_seconds=1800,
+        )
+        plate2 = Plate.create(
+            project_id=project.id,
+            source_filename="p2.3mf",
+            plate_number=1,
+            name="Plate2",
+            gcode_path="proj_2",
+            estimated_duration_seconds=1800,
+        )
+        await store.async_add_plates([plate1, plate2])
 
-        assert len(store.parts) == 2
+        assert len(store.get_plates()) == 2
+        assert len(store.get_jobs()) == 2
 
         await store.async_delete_project(project.id)
-        assert len(store.parts) == 0
+        assert len(store.get_plates()) == 0
+        assert len(store.get_jobs()) == 0
 
     @pytest.mark.asyncio
-    async def test_create_and_complete_job(self, store):
+    async def test_job_lifecycle(self, store):
         project = await store.async_create_project("Project")
-        part = await store.async_add_part(project.id, "Part", "part.gcode")
+        plate = Plate.create(
+            project_id=project.id,
+            source_filename="test.3mf",
+            plate_number=1,
+            name="Test",
+            gcode_path="proj_1",
+            estimated_duration_seconds=1800,
+        )
+        await store.async_add_plates([plate])
 
-        job = await store.async_create_job(part.id)
-        assert job is not None
-        assert job.part_id == part.id
-        assert job.status == "printing"
+        jobs = store.get_queued_jobs()
+        assert len(jobs) == 1
+        job_id = jobs[0].id
 
+        success = await store.async_start_job(job_id)
+        assert success is True
         active = store.get_active_job()
         assert active is not None
-        assert active.id == job.id
+        assert active.id == job_id
+        assert active.status == JOB_STATUS_PRINTING
 
-        await store.async_complete_job(job.id)
+        success = await store.async_complete_job(job_id)
+        assert success is True
         active = store.get_active_job()
         assert active is None
 
+        job = store.get_job(job_id)
+        assert job.status == JOB_STATUS_COMPLETED
+
+    @pytest.mark.asyncio
+    async def test_fail_job_creates_replacement(self, store):
+        project = await store.async_create_project("Project")
+        plate = Plate.create(
+            project_id=project.id,
+            source_filename="test.3mf",
+            plate_number=1,
+            name="Test",
+            gcode_path="proj_1",
+            estimated_duration_seconds=1800,
+        )
+        await store.async_add_plates([plate])
+
+        job_id = store.get_queued_jobs()[0].id
+        await store.async_start_job(job_id)
+
+        new_job = await store.async_fail_job(job_id, "Stringing")
+        assert new_job is not None
+
+        failed_job = store.get_job(job_id)
+        assert failed_job.status == JOB_STATUS_FAILED
+        assert failed_job.failure_reason == "Stringing"
+
+        queued = store.get_queued_jobs()
+        assert len(queued) == 1
+        assert queued[0].id == new_job.id
+
+    @pytest.mark.asyncio
+    async def test_project_progress(self, store):
+        project = await store.async_create_project("Project")
+        plate = Plate.create(
+            project_id=project.id,
+            source_filename="test.3mf",
+            plate_number=1,
+            name="Test",
+            gcode_path="proj_1",
+            estimated_duration_seconds=1800,
+        )
+        await store.async_add_plates([plate])
+        await store.async_set_plate_quantity(plate.id, 3)
+
+        completed, total = store.get_project_progress(project.id)
+        assert completed == 0
+        assert total == 3
+
+        jobs = store.get_queued_jobs()
+        await store.async_start_job(jobs[0].id)
+        await store.async_complete_job(jobs[0].id)
+
+        completed, total = store.get_project_progress(project.id)
+        assert completed == 1
+        assert total == 3
+
     @pytest.mark.asyncio
     async def test_unavailability_windows(self, store):
-        from datetime import datetime
-
         start = datetime(2024, 1, 15, 22, 0)
         end = datetime(2024, 1, 16, 7, 0)
 
         window = await store.async_add_unavailability(start, end)
         assert window is not None
-        assert len(store.unavailability_windows) == 1
+        assert len(store.get_unavailability_windows()) == 1
 
         await store.async_remove_unavailability(window.id)
-        assert len(store.unavailability_windows) == 0
+        assert len(store.get_unavailability_windows()) == 0

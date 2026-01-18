@@ -1,7 +1,7 @@
 """Tests for PrintAssist file handler."""
 
 import pytest
-from unittest.mock import MagicMock, patch, AsyncMock
+from unittest.mock import patch
 from pathlib import Path
 import io
 import zipfile
@@ -69,27 +69,27 @@ class TestThumbnailExtraction:
         with patch("pathlib.Path.mkdir"):
             return FileHandler(mock_hass)
 
-    def test_extract_thumbnail_standard_path(self, file_handler):
-        buffer = io.BytesIO()
-        with zipfile.ZipFile(buffer, "w") as zf:
-            zf.writestr("Metadata/thumbnail.png", b"PNG_DATA")
-
-        buffer.seek(0)
-        with zipfile.ZipFile(buffer) as zf:
-            with patch.object(file_handler._thumbnail_path.__class__, "write_bytes"):
-                result = file_handler._extract_thumbnail_from_3mf(zf, "test-id")
-
-        assert result == "/local/printassist/thumbnails/test-id.png"
-
-    def test_extract_thumbnail_bambu_path(self, file_handler):
+    def test_extract_plate_thumbnail_standard_path(self, file_handler):
         buffer = io.BytesIO()
         with zipfile.ZipFile(buffer, "w") as zf:
             zf.writestr("Metadata/plate_1.png", b"PNG_DATA")
 
         buffer.seek(0)
         with zipfile.ZipFile(buffer) as zf:
-            with patch.object(file_handler._thumbnail_path.__class__, "write_bytes"):
-                result = file_handler._extract_thumbnail_from_3mf(zf, "test-id")
+            with patch.object(Path, "write_bytes"):
+                result = file_handler._extract_plate_thumbnail(zf, 1, "test-id")
+
+        assert result == "/local/printassist/thumbnails/test-id.png"
+
+    def test_extract_plate_thumbnail_alt_path(self, file_handler):
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w") as zf:
+            zf.writestr(".thumbnails/plate_1.png", b"PNG_DATA")
+
+        buffer.seek(0)
+        with zipfile.ZipFile(buffer) as zf:
+            with patch.object(Path, "write_bytes"):
+                result = file_handler._extract_plate_thumbnail(zf, 1, "test-id")
 
         assert result == "/local/printassist/thumbnails/test-id.png"
 
@@ -100,7 +100,7 @@ class TestThumbnailExtraction:
 
         buffer.seek(0)
         with zipfile.ZipFile(buffer) as zf:
-            result = file_handler._extract_thumbnail_from_3mf(zf, "test-id")
+            result = file_handler._extract_plate_thumbnail(zf, 1, "test-id")
 
         assert result is None
 
@@ -115,33 +115,49 @@ class TestFileProcessing:
     async def test_process_gcode(self, file_handler):
         gcode = b"; TIME:3600\nG28\n"
 
-        with patch.object(file_handler._storage_path.__class__, "write_bytes"):
-            thumbnail, duration = await file_handler.process_gcode(gcode, "part-1", "test.gcode")
+        with patch.object(Path, "write_bytes"):
+            plates = await file_handler.process_gcode(gcode, "proj-1", "test.gcode")
 
-        assert thumbnail is None
-        assert duration == 3600
+        assert len(plates) == 1
+        assert plates[0].name == "test"
+        assert plates[0].estimated_duration_seconds == 3600
+        assert plates[0].plate_number == 1
 
     @pytest.mark.asyncio
-    async def test_process_3mf(self, file_handler):
+    async def test_process_3mf_single_plate(self, file_handler):
         buffer = io.BytesIO()
         with zipfile.ZipFile(buffer, "w") as zf:
-            zf.writestr("Metadata/thumbnail.png", b"PNG")
-            zf.writestr("print.gcode", b"; TIME:7200\nG28\n")
+            zf.writestr("Metadata/plate_1.png", b"PNG")
+            zf.writestr("Metadata/plate_1.gcode", b"; TIME:7200\nG28\n")
 
-        with patch.object(file_handler._storage_path.__class__, "write_bytes"):
-            with patch.object(file_handler._thumbnail_path.__class__, "write_bytes"):
-                thumbnail, duration = await file_handler.process_3mf(
-                    buffer.getvalue(), "part-1", "test.3mf"
-                )
+        with patch.object(Path, "write_bytes"):
+            plates = await file_handler.process_3mf(buffer.getvalue(), "proj-1", "test.3mf")
 
-        assert thumbnail == "/local/printassist/thumbnails/part-1.png"
-        assert duration == 7200
+        assert len(plates) == 1
+        assert plates[0].plate_number == 1
+        assert plates[0].estimated_duration_seconds == 7200
+        assert plates[0].thumbnail_path is not None
+
+    @pytest.mark.asyncio
+    async def test_process_3mf_multi_plate(self, file_handler):
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w") as zf:
+            zf.writestr("Metadata/plate_1.gcode", b"; TIME:3600\nG28\n")
+            zf.writestr("Metadata/plate_2.gcode", b"; TIME:7200\nG28\n")
+            zf.writestr("Metadata/plate_1.png", b"PNG1")
+            zf.writestr("Metadata/plate_2.png", b"PNG2")
+
+        with patch.object(Path, "write_bytes"):
+            plates = await file_handler.process_3mf(buffer.getvalue(), "proj-1", "test.3mf")
+
+        assert len(plates) == 2
+        plate_nums = {p.plate_number for p in plates}
+        assert plate_nums == {1, 2}
 
     @pytest.mark.asyncio
     async def test_process_unsupported_file(self, file_handler):
-        thumbnail, duration = await file_handler.process_file(b"data", "part-1", "model.stl")
-        assert thumbnail is None
-        assert duration == 0
+        plates = await file_handler.process_file(b"data", "proj-1", "model.stl")
+        assert plates == []
 
 
 class TestReal3MFParsing:
@@ -159,11 +175,9 @@ class TestReal3MFParsing:
         with open(fixture_path, "rb") as f:
             file_content = f.read()
 
-        with patch.object(file_handler._storage_path.__class__, "write_bytes"):
-            with patch.object(file_handler._thumbnail_path.__class__, "write_bytes"):
-                thumbnail, duration = await file_handler.process_3mf(
-                    file_content, "orca-test", "sample.3mf"
-                )
+        with patch.object(Path, "write_bytes"):
+            plates = await file_handler.process_3mf(file_content, "orca-test", "sample.3mf")
 
-        assert thumbnail == "/local/printassist/thumbnails/orca-test.png"
-        assert duration == 5 * 3600 + 53 * 60 + 25  # 5h 53m 25s
+        assert len(plates) >= 1
+        assert plates[0].thumbnail_path is not None
+        assert plates[0].estimated_duration_seconds == 5 * 3600 + 53 * 60 + 25

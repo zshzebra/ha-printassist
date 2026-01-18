@@ -1,28 +1,43 @@
 """Tests for PrintAssist scheduler."""
 
 import pytest
-from datetime import datetime, timedelta
-from unittest.mock import MagicMock
+from datetime import datetime, timedelta, timezone
 
 import sys
 sys.path.insert(0, str(__file__).rsplit("/", 2)[0])
 
-from custom_components.printassist.scheduler import PrintScheduler, ScheduledPrint
-from custom_components.printassist.store import Part, UnavailabilityWindow
+from custom_components.printassist.scheduler import PrintScheduler, ScheduledJob
+from custom_components.printassist.store import Plate, Job, UnavailabilityWindow
 
 
-def make_part(id: str, name: str, duration: int, priority: int = 0) -> Part:
-    """Helper to create a test part."""
-    return Part(
+def utc(*args) -> datetime:
+    """Create a UTC-aware datetime."""
+    return datetime(*args, tzinfo=timezone.utc)
+
+
+def make_plate(id: str, name: str, duration: int, priority: int = 0) -> Plate:
+    """Helper to create a test plate."""
+    return Plate(
         id=id,
         project_id="proj-1",
+        source_filename=f"{name}.3mf",
+        plate_number=1,
         name=name,
-        filename=f"{name}.gcode",
-        thumbnail_path=None,
+        gcode_path=f"proj-1_{id}",
         estimated_duration_seconds=duration,
-        filament_type=None,
-        status="pending",
+        thumbnail_path=None,
+        quantity_needed=1,
         priority=priority,
+    )
+
+
+def make_job(id: str, plate_id: str) -> Job:
+    """Helper to create a test job."""
+    return Job(
+        id=id,
+        plate_id=plate_id,
+        status="queued",
+        created_at=datetime.now().isoformat(),
     )
 
 
@@ -37,108 +52,151 @@ def make_window(id: str, start: datetime, end: datetime) -> UnavailabilityWindow
 
 class TestPrintScheduler:
     def test_empty_queue(self):
-        scheduler = PrintScheduler([], [])
+        scheduler = PrintScheduler([], {}, [])
         assert scheduler.calculate_schedule() == []
         assert scheduler.get_next_recommended() is None
 
-    def test_single_part_no_windows(self):
-        parts = [make_part("p1", "Benchy", 3600)]
-        scheduler = PrintScheduler(parts, [])
+    def test_single_job_no_windows(self):
+        plate = make_plate("p1", "Benchy", 3600)
+        job = make_job("j1", "p1")
+        scheduler = PrintScheduler([job], {"p1": plate}, [])
 
         schedule = scheduler.calculate_schedule()
         assert len(schedule) == 1
-        assert schedule[0].part_id == "p1"
-        assert schedule[0].fits_in_window is True
+        assert schedule[0].job_id == "j1"
+        assert schedule[0].plate_id == "p1"
+        assert schedule[0].spans_unavailability is False
 
     def test_priority_ordering(self):
-        parts = [
-            make_part("p1", "Low", 1800, priority=0),
-            make_part("p2", "High", 1800, priority=10),
-            make_part("p3", "Medium", 1800, priority=5),
+        plates = {
+            "p1": make_plate("p1", "Low", 1800, priority=0),
+            "p2": make_plate("p2", "High", 1800, priority=10),
+            "p3": make_plate("p3", "Medium", 1800, priority=5),
+        }
+        jobs = [
+            make_job("j1", "p1"),
+            make_job("j2", "p2"),
+            make_job("j3", "p3"),
         ]
-        scheduler = PrintScheduler(parts, [])
+        scheduler = PrintScheduler(jobs, plates, [])
 
         schedule = scheduler.calculate_schedule()
-        assert [s.part_id for s in schedule] == ["p2", "p3", "p1"]
+        assert [s.job_id for s in schedule] == ["j2", "j3", "j1"]
 
     def test_fits_before_unavailability(self):
-        now = datetime(2024, 1, 15, 18, 0, 0)
-        window = make_window("w1", datetime(2024, 1, 15, 22, 0, 0), datetime(2024, 1, 16, 7, 0, 0))
+        now = utc(2024, 1, 15, 18, 0, 0)
+        window = make_window("w1", utc(2024, 1, 15, 22, 0, 0), utc(2024, 1, 16, 7, 0, 0))
 
-        parts = [make_part("p1", "ShortPrint", 3600)]  # 1 hour, fits before 10pm
-        scheduler = PrintScheduler(parts, [window], current_time=now)
-
-        schedule = scheduler.calculate_schedule()
-        assert len(schedule) == 1
-        assert schedule[0].fits_in_window is True
-        assert schedule[0].estimated_end <= datetime(2024, 1, 15, 22, 0, 0)
-
-    def test_does_not_fit_schedules_after(self):
-        now = datetime(2024, 1, 15, 20, 0, 0)
-        window = make_window("w1", datetime(2024, 1, 15, 22, 0, 0), datetime(2024, 1, 16, 7, 0, 0))
-
-        parts = [make_part("p1", "LongPrint", 7201)]  # 2+ hours, won't finish before 10pm
-        scheduler = PrintScheduler(parts, [window], current_time=now)
+        plate = make_plate("p1", "ShortPrint", 3600)
+        job = make_job("j1", "p1")
+        scheduler = PrintScheduler([job], {"p1": plate}, [window], current_time=now)
 
         schedule = scheduler.calculate_schedule()
         assert len(schedule) == 1
-        assert schedule[0].estimated_start >= datetime(2024, 1, 16, 7, 0, 0)
+        assert schedule[0].spans_unavailability is False
+        assert schedule[0].scheduled_end <= utc(2024, 1, 15, 22, 0, 0)
 
-    def test_selects_fitting_part_over_priority(self):
-        now = datetime(2024, 1, 15, 20, 0, 0)
-        window = make_window("w1", datetime(2024, 1, 15, 22, 0, 0), datetime(2024, 1, 16, 7, 0, 0))
+    def test_does_not_fit_schedules_after_short_unavail(self):
+        now = utc(2024, 1, 15, 20, 0, 0)
+        window = make_window("w1", utc(2024, 1, 15, 22, 0, 0), utc(2024, 1, 15, 23, 30, 0))
 
-        parts = [
-            make_part("p1", "Long", 10800, priority=10),  # 3 hours, high priority but won't fit
-            make_part("p2", "Short", 3600, priority=5),   # 1 hour, lower priority but fits
+        plate = make_plate("p1", "LongPrint", 7201)
+        job = make_job("j1", "p1")
+        scheduler = PrintScheduler([job], {"p1": plate}, [window], current_time=now)
+
+        schedule = scheduler.calculate_schedule()
+        assert len(schedule) == 1
+        assert schedule[0].scheduled_start >= utc(2024, 1, 15, 23, 30, 0)
+
+    def test_selects_fitting_job_over_priority(self):
+        now = utc(2024, 1, 15, 20, 0, 0)
+        window = make_window("w1", utc(2024, 1, 15, 22, 0, 0), utc(2024, 1, 16, 7, 0, 0))
+
+        plates = {
+            "p1": make_plate("p1", "Long", 10800, priority=10),
+            "p2": make_plate("p2", "Short", 3600, priority=5),
+        }
+        jobs = [
+            make_job("j1", "p1"),
+            make_job("j2", "p2"),
         ]
-        scheduler = PrintScheduler(parts, [window], current_time=now)
+        scheduler = PrintScheduler(jobs, plates, [window], current_time=now)
 
         schedule = scheduler.calculate_schedule()
-        assert schedule[0].part_id == "p2"
-        assert schedule[0].fits_in_window is True
+        assert schedule[0].job_id == "j2"
+        assert schedule[0].spans_unavailability is False
 
     def test_printer_busy(self):
-        now = datetime(2024, 1, 15, 18, 0, 0)
-        busy_until = datetime(2024, 1, 15, 19, 0, 0)
+        now = utc(2024, 1, 15, 18, 0, 0)
+        busy_until = utc(2024, 1, 15, 19, 0, 0)
 
-        parts = [make_part("p1", "Next", 1800)]
-        scheduler = PrintScheduler(parts, [], current_time=now, printer_busy_until=busy_until)
+        plate = make_plate("p1", "Next", 1800)
+        job = make_job("j1", "p1")
+        scheduler = PrintScheduler([job], {"p1": plate}, [], current_time=now, active_job_end=busy_until)
 
         schedule = scheduler.calculate_schedule()
-        assert schedule[0].estimated_start == busy_until
+        assert schedule[0].scheduled_start == busy_until
 
     def test_get_next_recommended(self):
-        parts = [
-            make_part("p1", "First", 1800, priority=10),
-            make_part("p2", "Second", 1800, priority=5),
+        plates = {
+            "p1": make_plate("p1", "First", 1800, priority=10),
+            "p2": make_plate("p2", "Second", 1800, priority=5),
+        }
+        jobs = [
+            make_job("j1", "p1"),
+            make_job("j2", "p2"),
         ]
-        scheduler = PrintScheduler(parts, [])
+        scheduler = PrintScheduler(jobs, plates, [])
 
         recommended = scheduler.get_next_recommended()
         assert recommended is not None
-        assert recommended.id == "p1"
-        assert recommended.name == "First"
+        assert recommended.job_id == "j1"
+        assert recommended.plate_name == "First"
 
     def test_multiple_windows(self):
-        now = datetime(2024, 1, 15, 8, 0, 0)
+        now = utc(2024, 1, 15, 8, 0, 0)
         windows = [
-            make_window("w1", datetime(2024, 1, 15, 9, 0, 0), datetime(2024, 1, 15, 10, 0, 0)),
-            make_window("w2", datetime(2024, 1, 15, 12, 0, 0), datetime(2024, 1, 15, 13, 0, 0)),
+            make_window("w1", utc(2024, 1, 15, 9, 0, 0), utc(2024, 1, 15, 10, 0, 0)),
+            make_window("w2", utc(2024, 1, 15, 12, 0, 0), utc(2024, 1, 15, 13, 0, 0)),
         ]
 
-        parts = [make_part("p1", "Print", 1800)]  # 30 min
-        scheduler = PrintScheduler(parts, windows, current_time=now)
+        plate = make_plate("p1", "Print", 1800)
+        job = make_job("j1", "p1")
+        scheduler = PrintScheduler([job], {"p1": plate}, windows, current_time=now)
 
         schedule = scheduler.calculate_schedule()
-        assert schedule[0].estimated_end <= datetime(2024, 1, 15, 9, 0, 0)
+        assert schedule[0].scheduled_end <= utc(2024, 1, 15, 9, 0, 0)
 
     def test_starts_after_current_unavailability(self):
-        now = datetime(2024, 1, 15, 23, 0, 0)
-        window = make_window("w1", datetime(2024, 1, 15, 22, 0, 0), datetime(2024, 1, 16, 7, 0, 0))
+        now = utc(2024, 1, 15, 23, 0, 0)
+        window = make_window("w1", utc(2024, 1, 15, 22, 0, 0), utc(2024, 1, 16, 7, 0, 0))
 
-        parts = [make_part("p1", "Print", 1800)]
-        scheduler = PrintScheduler(parts, [window], current_time=now)
+        plate = make_plate("p1", "Print", 1800)
+        job = make_job("j1", "p1")
+        scheduler = PrintScheduler([job], {"p1": plate}, [window], current_time=now)
 
         schedule = scheduler.calculate_schedule()
-        assert schedule[0].estimated_start >= datetime(2024, 1, 16, 7, 0, 0)
+        assert schedule[0].scheduled_start >= utc(2024, 1, 16, 7, 0, 0)
+
+    def test_long_unavailability_spans(self):
+        now = utc(2024, 1, 15, 21, 0, 0)
+        window = make_window("w1", utc(2024, 1, 15, 22, 0, 0), utc(2024, 1, 16, 7, 0, 0))
+
+        plate = make_plate("p1", "LongPrint", 14400)
+        job = make_job("j1", "p1")
+        scheduler = PrintScheduler([job], {"p1": plate}, [window], current_time=now)
+
+        schedule = scheduler.calculate_schedule()
+        assert len(schedule) == 1
+        assert schedule[0].spans_unavailability is True
+
+    def test_schedule_has_timestamps(self):
+        now = utc(2024, 1, 15, 18, 0, 0)
+        plate = make_plate("p1", "Test", 3600)
+        job = make_job("j1", "p1")
+        scheduler = PrintScheduler([job], {"p1": plate}, [], current_time=now)
+
+        schedule = scheduler.calculate_schedule()
+        assert schedule[0].scheduled_start == now
+        assert schedule[0].scheduled_end == now + timedelta(hours=1)
+        assert schedule[0].estimated_duration_seconds == 3600

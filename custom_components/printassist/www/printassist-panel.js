@@ -16,7 +16,11 @@ class PrintAssistPanel extends LitElement {
       _jobs: { type: Array },
       _selectedProject: { type: Object },
       _schedule: { type: Array },
+      _unavailability: { type: Array },
       _uploading: { type: Boolean },
+      _ganttView: { type: String },
+      _ganttOffset: { type: Number },
+      _unavailDateOffset: { type: Number },
     };
   }
 
@@ -258,38 +262,6 @@ class PrintAssistPanel extends LitElement {
         display: none;
       }
 
-      .schedule-item {
-        display: flex;
-        align-items: center;
-        gap: 12px;
-        padding: 12px;
-        background: var(--secondary-background-color);
-        border-radius: 8px;
-        margin-bottom: 8px;
-      }
-
-      .schedule-number {
-        width: 28px;
-        height: 28px;
-        background: var(--primary-color);
-        color: var(--text-primary-color);
-        border-radius: 50%;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-weight: 500;
-        font-size: 14px;
-      }
-
-      .schedule-info {
-        flex: 1;
-      }
-
-      .schedule-time {
-        color: var(--secondary-text-color);
-        font-size: 12px;
-      }
-
       .back-btn {
         display: flex;
         align-items: center;
@@ -331,25 +303,10 @@ class PrintAssistPanel extends LitElement {
         text-transform: uppercase;
       }
 
-      .status-queued {
-        background: var(--warning-color);
-        color: white;
-      }
-
-      .status-printing {
-        background: var(--primary-color);
-        color: white;
-      }
-
-      .status-completed {
-        background: var(--success-color);
-        color: white;
-      }
-
-      .status-failed {
-        background: var(--error-color);
-        color: white;
-      }
+      .status-queued { background: var(--warning-color); color: white; }
+      .status-printing { background: var(--primary-color); color: white; }
+      .status-completed { background: var(--success-color); color: white; }
+      .status-failed { background: var(--error-color); color: white; }
 
       .jobs-history {
         margin-left: 72px;
@@ -390,13 +347,253 @@ class PrintAssistPanel extends LitElement {
         gap: 4px;
       }
 
-      .next-job-title {
+      .next-job-title { font-weight: 500; }
+      .next-job-file { font-size: 12px; opacity: 0.9; }
+
+      /* Gantt Chart Styles */
+      .gantt-controls {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        margin-bottom: 16px;
+        flex-wrap: wrap;
+      }
+
+      .gantt-nav {
+        display: flex;
+        gap: 4px;
+      }
+
+      .view-toggle {
+        display: flex;
+        gap: 4px;
+      }
+
+      .gantt-container {
+        overflow-x: auto;
+        padding: 8px 0;
+      }
+
+      .gantt-chart {
+        display: grid;
+        min-width: 800px;
+        gap: 4px;
+      }
+
+      .gantt-header {
+        display: grid;
+        background: var(--secondary-background-color);
+        border-radius: 4px;
+        font-size: 12px;
         font-weight: 500;
       }
 
-      .next-job-file {
+      .gantt-header-cell {
+        padding: 8px 4px;
+        text-align: center;
+        border-right: 1px solid var(--divider-color);
+      }
+
+      .gantt-header-cell:last-child {
+        border-right: none;
+      }
+
+      .gantt-row {
+        display: grid;
+        position: relative;
+        min-height: 40px;
+        background: var(--secondary-background-color);
+        border-radius: 4px;
+        border: 1px solid var(--divider-color);
+        margin-top: 16px;
+      }
+
+      .gantt-row-label {
+        position: absolute;
+        left: 8px;
+        top: -9px;
+        font-size: 11px;
+        font-weight: 500;
+        color: var(--secondary-text-color);
+        background: var(--card-background-color);
+        padding: 0 6px;
+        z-index: 3;
+      }
+
+      .gantt-unavailable {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        background: repeating-linear-gradient(
+          45deg,
+          var(--error-color),
+          var(--error-color) 2px,
+          transparent 2px,
+          transparent 8px
+        );
+        opacity: 0.3;
+        cursor: pointer;
+      }
+
+      .gantt-job {
+        position: absolute;
+        top: 4px;
+        bottom: 4px;
+        background: var(--primary-color);
+        border-radius: 4px;
+        display: flex;
+        align-items: center;
+        padding: 0 8px;
+        font-size: 11px;
+        color: var(--text-primary-color);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        cursor: pointer;
+      }
+
+      .gantt-job.spans {
+        background: var(--warning-color);
+      }
+
+      .gantt-job-thumbnail {
+        width: 24px;
+        height: 24px;
+        border-radius: 3px;
+        margin-right: 6px;
+        flex-shrink: 0;
+      }
+
+      /* Unavailability Management */
+      .unavail-section {
+        margin-top: 24px;
+      }
+
+      .unavail-presets {
+        display: flex;
+        gap: 8px;
+        margin-bottom: 16px;
+        flex-wrap: wrap;
+      }
+
+      .unavail-list {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+
+      .unavail-item {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 12px;
+        background: var(--secondary-background-color);
+        border-radius: 8px;
+      }
+
+      .unavail-info {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+
+      .unavail-time {
+        font-weight: 500;
+      }
+
+      .unavail-date {
         font-size: 12px;
-        opacity: 0.9;
+        color: var(--secondary-text-color);
+      }
+
+      .schedule-item {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 12px;
+        background: var(--secondary-background-color);
+        border-radius: 8px;
+        margin-bottom: 8px;
+      }
+
+      .schedule-number {
+        width: 28px;
+        height: 28px;
+        background: var(--primary-color);
+        color: var(--text-primary-color);
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 500;
+        font-size: 14px;
+      }
+
+      .schedule-info { flex: 1; }
+
+      .schedule-time {
+        color: var(--secondary-text-color);
+        font-size: 12px;
+      }
+
+      .schedule-timestamps {
+        font-size: 11px;
+        color: var(--primary-color);
+        margin-top: 4px;
+      }
+
+      .custom-unavail {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        margin-top: 16px;
+        padding: 16px;
+        background: var(--secondary-background-color);
+        border-radius: 8px;
+      }
+
+      .custom-unavail-row {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        flex-wrap: wrap;
+      }
+
+      .custom-unavail label {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        font-size: 12px;
+        color: var(--secondary-text-color);
+      }
+
+      .custom-unavail input,
+      .custom-unavail select {
+        padding: 8px 12px;
+        border: 1px solid var(--divider-color);
+        border-radius: 4px;
+        background: var(--card-background-color);
+        color: var(--primary-text-color);
+        font-size: 14px;
+      }
+
+      .custom-unavail select {
+        min-width: 100px;
+      }
+
+      .date-quick-btns {
+        display: flex;
+        gap: 4px;
+      }
+
+      .date-quick-btns button {
+        padding: 6px 12px;
+        font-size: 12px;
+      }
+
+      .date-quick-btns button.selected {
+        background: var(--primary-color);
+        color: var(--text-primary-color);
       }
     `;
   }
@@ -409,7 +606,11 @@ class PrintAssistPanel extends LitElement {
     this._jobs = [];
     this._selectedProject = null;
     this._schedule = [];
+    this._unavailability = [];
     this._uploading = false;
+    this._ganttView = "day";
+    this._ganttOffset = 0;
+    this._unavailDateOffset = 0;
   }
 
   connectedCallback() {
@@ -428,12 +629,14 @@ class PrintAssistPanel extends LitElement {
       this._plates = result.plates || [];
       this._jobs = result.jobs || [];
       this._schedule = result.schedule || [];
+      this._unavailability = result.unavailability_windows || [];
     } catch (err) {
       console.error("Failed to load PrintAssist data:", err);
       this._projects = [];
       this._plates = [];
       this._jobs = [];
       this._schedule = [];
+      this._unavailability = [];
     }
   }
 
@@ -441,10 +644,20 @@ class PrintAssistPanel extends LitElement {
     if (!seconds) return "Unknown";
     const hours = Math.floor(seconds / 3600);
     const minutes = Math.floor((seconds % 3600) / 60);
-    if (hours > 0) {
-      return `${hours}h ${minutes}m`;
-    }
+    if (hours > 0) return `${hours}h ${minutes}m`;
     return `${minutes}m`;
+  }
+
+  _formatTime(isoString) {
+    if (!isoString) return "";
+    const date = new Date(isoString);
+    return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  }
+
+  _formatDate(isoString) {
+    if (!isoString) return "";
+    const date = new Date(isoString);
+    return date.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
   }
 
   _handleTabClick(view) {
@@ -466,22 +679,15 @@ class PrintAssistPanel extends LitElement {
     const name = prompt("Project name:");
     if (!name) return;
 
-    try {
-      await this.hass.callService("printassist", "create_project", { name });
-      await this._loadData();
-    } catch (err) {
-      console.error("Failed to create project:", err);
-      alert("Failed to create project: " + err.message);
-    }
+    await this.hass.callService("printassist", "create_project", { name });
+    await this._loadData();
   }
 
   async _deleteProject(projectId, e) {
     e.stopPropagation();
     if (!confirm("Delete this project and all its plates?")) return;
 
-    await this.hass.callService("printassist", "delete_project", {
-      project_id: projectId,
-    });
+    await this.hass.callService("printassist", "delete_project", { project_id: projectId });
     this._goBack();
     setTimeout(() => this._loadData(), 500);
   }
@@ -501,9 +707,7 @@ class PrintAssistPanel extends LitElement {
         const response = await fetch("/api/printassist/upload", {
           method: "POST",
           body: formData,
-          headers: {
-            Authorization: `Bearer ${this.hass.auth.data.access_token}`,
-          },
+          headers: { Authorization: `Bearer ${this.hass.auth.data.access_token}` },
         });
 
         if (!response.ok) {
@@ -523,18 +727,13 @@ class PrintAssistPanel extends LitElement {
 
   async _setQuantity(plateId, quantity) {
     if (quantity < 0) return;
-    await this.hass.callService("printassist", "set_quantity", {
-      plate_id: plateId,
-      quantity,
-    });
+    await this.hass.callService("printassist", "set_quantity", { plate_id: plateId, quantity });
     setTimeout(() => this._loadData(), 300);
   }
 
   async _deletePlate(plateId) {
     if (!confirm("Delete this plate?")) return;
-    await this.hass.callService("printassist", "delete_plate", {
-      plate_id: plateId,
-    });
+    await this.hass.callService("printassist", "delete_plate", { plate_id: plateId });
     setTimeout(() => this._loadData(), 500);
   }
 
@@ -555,6 +754,87 @@ class PrintAssistPanel extends LitElement {
       failure_reason: reason || undefined,
     });
     setTimeout(() => this._loadData(), 500);
+  }
+
+  async _addUnavailability(start, end) {
+    await this.hass.callService("printassist", "add_unavailability", { start, end });
+    setTimeout(() => this._loadData(), 500);
+  }
+
+  async _removeUnavailability(windowId) {
+    await this.hass.callService("printassist", "remove_unavailability", { window_id: windowId });
+    setTimeout(() => this._loadData(), 500);
+  }
+
+  _addPresetUnavailability(preset) {
+    const now = new Date();
+    let start, end;
+
+    switch (preset) {
+      case "tonight":
+        start = new Date(now);
+        start.setHours(22, 0, 0, 0);
+        if (start < now) start.setDate(start.getDate() + 1);
+        end = new Date(start);
+        end.setDate(end.getDate() + 1);
+        end.setHours(7, 0, 0, 0);
+        break;
+      case "work":
+        start = new Date(now);
+        start.setHours(9, 0, 0, 0);
+        if (start < now) start.setDate(start.getDate() + 1);
+        end = new Date(start);
+        end.setHours(17, 0, 0, 0);
+        break;
+      case "weekend":
+        start = new Date(now);
+        const dayOfWeek = start.getDay();
+        const daysUntilSat = (6 - dayOfWeek + 7) % 7 || 7;
+        start.setDate(start.getDate() + daysUntilSat);
+        start.setHours(0, 0, 0, 0);
+        end = new Date(start);
+        end.setDate(end.getDate() + 2);
+        break;
+    }
+
+    this._addUnavailability(start.toISOString(), end.toISOString());
+  }
+
+  _handleCustomUnavailability() {
+    const startHour = parseInt(this.shadowRoot.querySelector("#unavail-start-hour")?.value || "22");
+    const endHour = parseInt(this.shadowRoot.querySelector("#unavail-end-hour")?.value || "7");
+
+    const baseDate = new Date();
+    baseDate.setDate(baseDate.getDate() + this._unavailDateOffset);
+    baseDate.setHours(0, 0, 0, 0);
+
+    const start = new Date(baseDate);
+    start.setHours(startHour, 0, 0, 0);
+
+    const end = new Date(baseDate);
+    if (endHour <= startHour) {
+      end.setDate(end.getDate() + 1);
+    }
+    end.setHours(endHour, 0, 0, 0);
+
+    this._addUnavailability(start.toISOString(), end.toISOString());
+  }
+
+  _getDateLabel(offset) {
+    const date = new Date();
+    date.setDate(date.getDate() + offset);
+    if (offset === 0) return "Today";
+    if (offset === 1) return "Tomorrow";
+    return date.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
+  }
+
+  _renderHourOptions(selectedHour) {
+    const options = [];
+    for (let h = 0; h < 24; h++) {
+      const label = h === 0 ? "12 AM" : h < 12 ? `${h} AM` : h === 12 ? "12 PM" : `${h - 12} PM`;
+      options.push(html`<option value="${h}" ?selected=${h === selectedHour}>${label}</option>`);
+    }
+    return options;
   }
 
   _handleDragOver(e) {
@@ -588,84 +868,65 @@ class PrintAssistPanel extends LitElement {
     return (this._jobs || []).find((j) => j.status === "printing");
   }
 
+  _getNextQueuedJob() {
+    return this._schedule[0] || null;
+  }
+
   _renderProjects() {
     return html`
       <div class="card-header">
         <span class="card-title">Projects</span>
-        <button class="btn btn-primary" @click=${this._createProject}>
-          + New Project
-        </button>
+        <button class="btn btn-primary" @click=${this._createProject}>+ New Project</button>
       </div>
 
       ${this._projects.length === 0
-        ? html`
-            <div class="empty-state">
-              <p>No projects yet. Create one to start organizing your prints.</p>
-            </div>
-          `
+        ? html`<div class="empty-state"><p>No projects yet. Create one to start organizing your prints.</p></div>`
         : html`
             <div class="project-list">
-              ${this._projects.map(
-                (project) => {
-                  const progress = project.total > 0
-                    ? (project.completed / project.total) * 100
-                    : 0;
-                  return html`
-                    <div
-                      class="project-card"
-                      @click=${() => this._selectProject(project)}
-                    >
-                      <div class="project-name">${project.name}</div>
-                      <div class="project-meta">
-                        ${project.completed} / ${project.total} prints completed
-                      </div>
-                      <div class="progress-bar">
-                        <div class="progress-fill" style="width: ${progress}%"></div>
-                      </div>
+              ${this._projects.map((project) => {
+                const progress = project.total > 0 ? (project.completed / project.total) * 100 : 0;
+                return html`
+                  <div class="project-card" @click=${() => this._selectProject(project)}>
+                    <div class="project-name">${project.name}</div>
+                    <div class="project-meta">${project.completed} / ${project.total} prints completed</div>
+                    <div class="progress-bar">
+                      <div class="progress-fill" style="width: ${progress}%"></div>
                     </div>
-                  `;
-                }
-              )}
+                  </div>
+                `;
+              })}
             </div>
           `}
     `;
-  }
-
-  _getNextQueuedJob() {
-    const sorted = [...this._schedule];
-    return sorted[0] || null;
   }
 
   _renderProjectDetail() {
     const plates = this._getProjectPlates(this._selectedProject.id);
     const activeJob = this._getActiveJob();
     const nextJob = this._getNextQueuedJob();
-    const nextPlate = nextJob ? this._plates.find(p => p.id === nextJob.plate_id) : null;
+    const nextPlate = nextJob ? this._plates.find((p) => p.id === nextJob.plate_id) : null;
 
     return html`
       <div class="back-btn" @click=${this._goBack}>← Back to Projects</div>
 
       <div class="card-header">
         <span class="card-title">${this._selectedProject.name}</span>
-        <button
-          class="btn btn-danger btn-small"
-          @click=${(e) => this._deleteProject(this._selectedProject.id, e)}
-        >
+        <button class="btn btn-danger btn-small" @click=${(e) => this._deleteProject(this._selectedProject.id, e)}>
           Delete Project
         </button>
       </div>
 
-      ${activeJob ? "" : nextJob && nextPlate ? html`
-        <div class="next-job-banner">
-          <div class="next-job-info">
-            <div class="next-job-title">Next: ${nextJob.plate_name}</div>
-            <div class="next-job-file">${nextPlate.source_filename} → Plate ${nextPlate.plate_number}</div>
-          </div>
-          <button class="btn btn-success" @click=${() => this._startJob(nextJob.job_id)}>
-            Start Print
-          </button>
-        </div>
-      ` : ""}
+      ${!activeJob && nextJob && nextPlate
+        ? html`
+            <div class="next-job-banner">
+              <div class="next-job-info">
+                <div class="next-job-title">Next: ${nextJob.plate_name}</div>
+                <div class="next-job-file">${nextPlate.source_filename} → Plate ${nextPlate.plate_number}</div>
+              </div>
+              <button class="btn btn-success" @click=${() => this._startJob(nextJob.job_id)}>Start Print</button>
+            </div>
+          `
+        : ""}
 
       <div
         class="upload-zone"
@@ -674,97 +935,202 @@ class PrintAssistPanel extends LitElement {
         @dragleave=${this._handleDragLeave}
         @drop=${this._handleDrop}
       >
-        <input
-          type="file"
-          id="file-input"
-          accept=".3mf,.gcode"
-          multiple
-          @change=${this._handleFileUpload}
-        />
-        ${this._uploading
-          ? "Uploading..."
-          : "Drop 3MF or gcode files here, or click to browse"}
+        <input type="file" id="file-input" accept=".3mf,.gcode" multiple @change=${this._handleFileUpload} />
+        ${this._uploading ? "Uploading..." : "Drop 3MF or gcode files here, or click to browse"}
       </div>
 
       <div class="plate-list">
         ${plates.length === 0
           ? html`<div class="empty-state">No plates yet. Upload some files above.</div>`
-          : plates.map(
-              (plate) => {
-                const completed = this._getCompletedCount(plate.id);
-                const jobs = this._getPlateJobs(plate.id);
-                const printingJob = jobs.find((j) => j.status === "printing");
-                const queuedJobs = jobs.filter((j) => j.status === "queued");
+          : plates.map((plate) => {
+              const completed = this._getCompletedCount(plate.id);
+              const jobs = this._getPlateJobs(plate.id);
+              const printingJob = jobs.find((j) => j.status === "printing");
+              const queuedJobs = jobs.filter((j) => j.status === "queued");
+              const finishedJobs = jobs
+                .filter((j) => j.status === "completed" || j.status === "failed")
+                .sort((a, b) => new Date(b.ended_at) - new Date(a.ended_at));
 
-                const finishedJobs = jobs
-                  .filter((j) => j.status === "completed" || j.status === "failed")
-                  .sort((a, b) => new Date(b.ended_at) - new Date(a.ended_at));
-
-                return html`
-                  <div class="plate-item">
-                    ${plate.thumbnail_path
-                      ? html`<img
-                          class="plate-thumbnail"
-                          src="${plate.thumbnail_path}"
-                          alt="${plate.name}"
-                        />`
-                      : html`<div class="plate-thumbnail"></div>`}
-                    <div class="plate-info">
-                      <div class="plate-name">${plate.name}</div>
-                      <div class="plate-meta">
-                        ${this._formatDuration(plate.estimated_duration_seconds)}
-                        · ${completed}/${plate.quantity_needed} done
-                        · ${queuedJobs.length} queued
-                        ${printingJob ? html`<span class="status-badge status-printing">Printing</span>` : ""}
-                      </div>
-                      <div class="plate-meta">${plate.source_filename}</div>
+              return html`
+                <div class="plate-item">
+                  ${plate.thumbnail_path
+                    ? html`<img class="plate-thumbnail" src="${plate.thumbnail_path}" alt="${plate.name}" />`
+                    : html`<div class="plate-thumbnail"></div>`}
+                  <div class="plate-info">
+                    <div class="plate-name">${plate.name}</div>
+                    <div class="plate-meta">
+                      ${this._formatDuration(plate.estimated_duration_seconds)} · ${completed}/${plate.quantity_needed} done ·
+                      ${queuedJobs.length} queued
+                      ${printingJob ? html`<span class="status-badge status-printing">Printing</span>` : ""}
                     </div>
-                    <div class="plate-actions">
-                      <div class="quantity-control">
-                        <button
-                          class="quantity-btn"
-                          @click=${() => this._setQuantity(plate.id, plate.quantity_needed - 1)}
-                        >-</button>
-                        <span class="quantity-value">${plate.quantity_needed}</span>
-                        <button
-                          class="quantity-btn"
-                          @click=${() => this._setQuantity(plate.id, plate.quantity_needed + 1)}
-                        >+</button>
-                      </div>
-                      <button
-                        class="btn btn-secondary btn-small"
-                        @click=${() => this._deletePlate(plate.id)}
-                      >
-                        Delete
+                    <div class="plate-meta">${plate.source_filename}</div>
+                  </div>
+                  <div class="plate-actions">
+                    <div class="quantity-control">
+                      <button class="quantity-btn" @click=${() => this._setQuantity(plate.id, plate.quantity_needed - 1)}>
+                        -
+                      </button>
+                      <span class="quantity-value">${plate.quantity_needed}</span>
+                      <button class="quantity-btn" @click=${() => this._setQuantity(plate.id, plate.quantity_needed + 1)}>
+                        +
                       </button>
                     </div>
+                    <button class="btn btn-secondary btn-small" @click=${() => this._deletePlate(plate.id)}>Delete</button>
                   </div>
+                </div>
 
-                  ${printingJob ? html`
-                    <div class="jobs-section">
-                      <div class="job-item">
-                        <span class="status-badge status-printing">Printing</span>
-                        <span style="flex:1">Started ${new Date(printingJob.started_at).toLocaleTimeString()}</span>
-                        <button class="btn btn-success btn-small" @click=${() => this._completeJob(printingJob.id)}>Complete</button>
-                        <button class="btn btn-danger btn-small" @click=${() => this._failJob(printingJob.id)}>Failed</button>
-                      </div>
-                    </div>
-                  ` : ""}
-
-                  ${finishedJobs.length > 0 ? html`
-                    <div class="jobs-history">
-                      ${finishedJobs.map((job) => html`
-                        <div class="job-history-item">
-                          <span class="status-badge status-${job.status}">${job.status}</span>
-                          <span>${new Date(job.ended_at).toLocaleString()}</span>
-                          ${job.failure_reason ? html`<span class="failure-reason">${job.failure_reason}</span>` : ""}
+                ${printingJob
+                  ? html`
+                      <div class="jobs-section">
+                        <div class="job-item">
+                          <span class="status-badge status-printing">Printing</span>
+                          <span style="flex:1">Started ${new Date(printingJob.started_at).toLocaleTimeString()}</span>
+                          <button class="btn btn-success btn-small" @click=${() => this._completeJob(printingJob.id)}>
+                            Complete
+                          </button>
+                          <button class="btn btn-danger btn-small" @click=${() => this._failJob(printingJob.id)}>Failed</button>
                         </div>
-                      `)}
-                    </div>
-                  ` : ""}
-                `;
-              }
-            )}
+                      </div>
+                    `
+                  : ""}
+                ${finishedJobs.length > 0
+                  ? html`
+                      <div class="jobs-history">
+                        ${finishedJobs.map(
+                          (job) => html`
+                            <div class="job-history-item">
+                              <span class="status-badge status-${job.status}">${job.status}</span>
+                              <span>${new Date(job.ended_at).toLocaleString()}</span>
+                              ${job.failure_reason ? html`<span class="failure-reason">${job.failure_reason}</span>` : ""}
+                            </div>
+                          `
+                        )}
+                      </div>
+                    `
+                  : ""}
+              `;
+            })}
+      </div>
+    `;
+  }
+
+  _getGanttTimeRange() {
+    const now = new Date();
+    const startOffset = this._ganttOffset * (this._ganttView === "day" ? 24 : 168);
+    const start = new Date(now.getTime() + startOffset * 3600000);
+    start.setMinutes(0, 0, 0);
+
+    const hours = this._ganttView === "day" ? 24 : 168;
+    const end = new Date(start.getTime() + hours * 3600000);
+
+    return { start, end, hours };
+  }
+
+  _renderGanttChart() {
+    const { start, end, hours } = this._getGanttTimeRange();
+    const cellWidth = this._ganttView === "day" ? 40 : 20;
+    const totalWidth = hours * cellWidth;
+
+    const headerCells = [];
+    const currentHour = new Date(start);
+
+    for (let i = 0; i < hours; i++) {
+      const label =
+        this._ganttView === "day"
+          ? currentHour.getHours().toString().padStart(2, "0")
+          : i % 24 === 0
+          ? currentHour.toLocaleDateString([], { weekday: "short" })
+          : "";
+      headerCells.push(html`<div class="gantt-header-cell" style="width: ${cellWidth}px">${label}</div>`);
+      currentHour.setHours(currentHour.getHours() + 1);
+    }
+
+    const unavailBlocks = this._unavailability
+      .map((w) => {
+        const wStart = new Date(w.start);
+        const wEnd = new Date(w.end);
+        if (wEnd <= start || wStart >= end) return null;
+
+        const clampedStart = wStart < start ? start : wStart;
+        const clampedEnd = wEnd > end ? end : wEnd;
+
+        const leftPct = ((clampedStart - start) / (end - start)) * 100;
+        const widthPct = ((clampedEnd - clampedStart) / (end - start)) * 100;
+
+        return html`
+          <div
+            class="gantt-unavailable"
+            style="left: ${leftPct}%; width: ${widthPct}%"
+            title="Unavailable: ${this._formatTime(w.start)} - ${this._formatTime(w.end)}"
+            @click=${() => this._removeUnavailability(w.id)}
+          ></div>
+        `;
+      })
+      .filter(Boolean);
+
+    const jobBlocks = this._schedule
+      .map((job) => {
+        const jStart = new Date(job.scheduled_start);
+        const jEnd = new Date(job.scheduled_end);
+        if (jEnd <= start || jStart >= end) return null;
+
+        const clampedStart = jStart < start ? start : jStart;
+        const clampedEnd = jEnd > end ? end : jEnd;
+
+        const leftPct = ((clampedStart - start) / (end - start)) * 100;
+        const widthPct = ((clampedEnd - clampedStart) / (end - start)) * 100;
+
+        return html`
+          <div
+            class="gantt-job ${job.spans_unavailability ? "spans" : ""}"
+            style="left: ${leftPct}%; width: ${widthPct}%"
+            title="${job.plate_name} (${this._formatTime(job.scheduled_start)} - ${this._formatTime(job.scheduled_end)})"
+          >
+            ${job.thumbnail_path ? html`<img class="gantt-job-thumbnail" src="${job.thumbnail_path}" />` : ""}
+            ${job.plate_name}
+          </div>
+        `;
+      })
+      .filter(Boolean);
+
+    return html`
+      <div class="gantt-controls">
+        <div class="view-toggle">
+          <button
+            class="btn ${this._ganttView === "day" ? "btn-primary" : "btn-secondary"} btn-small"
+            @click=${() => (this._ganttView = "day")}
+          >
+            Day
+          </button>
+          <button
+            class="btn ${this._ganttView === "week" ? "btn-primary" : "btn-secondary"} btn-small"
+            @click=${() => (this._ganttView = "week")}
+          >
+            Week
+          </button>
+        </div>
+        <div class="gantt-nav">
+          <button class="btn btn-secondary btn-small" @click=${() => this._ganttOffset--}>←</button>
+          <button class="btn btn-secondary btn-small" @click=${() => (this._ganttOffset = 0)}>Today</button>
+          <button class="btn btn-secondary btn-small" @click=${() => this._ganttOffset++}>→</button>
+        </div>
+        <span style="color: var(--secondary-text-color); font-size: 12px">
+          ${this._formatDate(start.toISOString())} - ${this._formatDate(end.toISOString())}
+        </span>
+      </div>
+
+      <div class="gantt-container">
+        <div class="gantt-chart" style="width: ${totalWidth}px">
+          <div class="gantt-header" style="grid-template-columns: repeat(${hours}, ${cellWidth}px)">${headerCells}</div>
+          <div class="gantt-row" style="grid-template-columns: repeat(${hours}, ${cellWidth}px)">
+            <div class="gantt-row-label">Unavailable</div>
+            ${unavailBlocks}
+          </div>
+          <div class="gantt-row" style="grid-template-columns: repeat(${hours}, ${cellWidth}px)">
+            <div class="gantt-row-label">Print Queue</div>
+            ${jobBlocks}
+          </div>
+        </div>
       </div>
     `;
   }
@@ -777,15 +1143,16 @@ class PrintAssistPanel extends LitElement {
     return html`
       <div class="card">
         <div class="card-title">Current Status</div>
-        <p>
-          ${activeJob?.state && activeJob.state !== "unknown"
-            ? `Printing: ${activeJob.state}`
-            : "Printer idle"}
-        </p>
+        <p>${activeJob?.state && activeJob.state !== "unknown" ? `Printing: ${activeJob.state}` : "Printer idle"}</p>
         <p>Queue: ${queueCount?.state || 0} jobs pending</p>
         ${nextPrint?.state && nextPrint.state !== "unknown"
           ? html`<p><strong>Next recommended:</strong> ${nextPrint.state}</p>`
           : ""}
+      </div>
+
+      <div class="card">
+        <div class="card-title">Schedule Timeline</div>
+        ${this._renderGanttChart()}
       </div>
 
       <div class="card">
@@ -797,22 +1164,99 @@ class PrintAssistPanel extends LitElement {
                 <div class="schedule-item">
                   <div class="schedule-number">${index + 1}</div>
                   ${item.thumbnail_path
-                    ? html`<img
-                        class="plate-thumbnail"
-                        src="${item.thumbnail_path}"
-                        alt="${item.plate_name}"
-                      />`
+                    ? html`<img class="plate-thumbnail" src="${item.thumbnail_path}" alt="${item.plate_name}" />`
                     : ""}
                   <div class="schedule-info">
-                    <div class="plate-name">${item.plate_name}</div>
+                    <div class="plate-name">
+                      ${item.plate_name}
+                      ${item.spans_unavailability ? html`<span class="status-badge status-queued">Overnight</span>` : ""}
+                    </div>
                     <div class="schedule-time">
-                      ${item.source_filename} → Plate ${item.plate_number}
-                      · ${this._formatDuration(item.estimated_duration_seconds)}
+                      ${item.source_filename} → Plate ${item.plate_number} ·
+                      ${this._formatDuration(item.estimated_duration_seconds)}
+                    </div>
+                    <div class="schedule-timestamps">
+                      ${this._formatTime(item.scheduled_start)} - ${this._formatTime(item.scheduled_end)}
+                      (${this._formatDate(item.scheduled_start)})
                     </div>
                   </div>
                 </div>
               `
             )}
+      </div>
+
+      <div class="card unavail-section">
+        <div class="card-title">Unavailability Windows</div>
+        <p style="color: var(--secondary-text-color); font-size: 13px; margin-bottom: 12px">
+          Mark times when you cannot manage prints. The scheduler will avoid starting long prints that would finish during
+          these times.
+        </p>
+
+        <div class="unavail-presets">
+          <button class="btn btn-secondary btn-small" @click=${() => this._addPresetUnavailability("tonight")}>
+            + Tonight (10pm-7am)
+          </button>
+          <button class="btn btn-secondary btn-small" @click=${() => this._addPresetUnavailability("work")}>
+            + Work (9am-5pm)
+          </button>
+          <button class="btn btn-secondary btn-small" @click=${() => this._addPresetUnavailability("weekend")}>
+            + Weekend
+          </button>
+        </div>
+
+        <div class="custom-unavail">
+          <div style="font-weight: 500; color: var(--primary-text-color);">Add Custom Window</div>
+          <div class="custom-unavail-row">
+            <label>
+              Date
+              <div class="date-quick-btns">
+                ${[0, 1, 2, 3].map(
+                  (offset) => html`
+                    <button
+                      class="btn btn-secondary btn-small ${this._unavailDateOffset === offset ? "selected" : ""}"
+                      @click=${() => (this._unavailDateOffset = offset)}
+                    >
+                      ${this._getDateLabel(offset)}
+                    </button>
+                  `
+                )}
+              </div>
+            </label>
+          </div>
+          <div class="custom-unavail-row">
+            <label>
+              From
+              <select id="unavail-start-hour">
+                ${this._renderHourOptions(22)}
+              </select>
+            </label>
+            <label>
+              To
+              <select id="unavail-end-hour">
+                ${this._renderHourOptions(7)}
+              </select>
+            </label>
+            <button class="btn btn-primary" @click=${this._handleCustomUnavailability}>Add Window</button>
+          </div>
+        </div>
+
+        ${this._unavailability.length > 0
+          ? html`
+              <div class="unavail-list" style="margin-top: 16px">
+                ${this._unavailability.map(
+                  (w) => html`
+                    <div class="unavail-item">
+                      <div class="unavail-info">
+                        <div class="unavail-time">${this._formatTime(w.start)} - ${this._formatTime(w.end)}</div>
+                        <div class="unavail-date">${this._formatDate(w.start)}</div>
+                      </div>
+                      <button class="btn btn-danger btn-small" @click=${() => this._removeUnavailability(w.id)}>Remove</button>
+                    </div>
+                  `
+                )}
+              </div>
+            `
+          : ""}
       </div>
     `;
   }
@@ -825,18 +1269,12 @@ class PrintAssistPanel extends LitElement {
 
       <div class="tabs">
         <button
-          class="tab ${this._view === "projects" ||
-          this._view === "project-detail"
-            ? "active"
-            : ""}"
+          class="tab ${this._view === "projects" || this._view === "project-detail" ? "active" : ""}"
           @click=${() => this._handleTabClick("projects")}
         >
           Projects
         </button>
-        <button
-          class="tab ${this._view === "schedule" ? "active" : ""}"
-          @click=${() => this._handleTabClick("schedule")}
-        >
+        <button class="tab ${this._view === "schedule" ? "active" : ""}" @click=${() => this._handleTabClick("schedule")}>
           Schedule
         </button>
       </div>

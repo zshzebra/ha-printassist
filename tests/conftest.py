@@ -1,8 +1,7 @@
 """Pytest fixtures for PrintAssist tests."""
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
-from datetime import datetime
+from unittest.mock import AsyncMock, MagicMock
 
 
 @pytest.fixture
@@ -30,31 +29,52 @@ def mock_store_data():
                 "notes": "",
             }
         ],
-        "parts": [
+        "plates": [
             {
-                "id": "part-1",
+                "id": "plate-1",
                 "project_id": "proj-1",
+                "source_filename": "benchy.3mf",
+                "plate_number": 1,
                 "name": "Benchy",
-                "filename": "benchy.3mf",
-                "thumbnail_path": "/local/printassist/thumbnails/part-1.png",
+                "gcode_path": "proj-1_1",
                 "estimated_duration_seconds": 3600,
-                "filament_type": None,
-                "status": "pending",
+                "thumbnail_path": "/local/printassist/thumbnails/plate-1.png",
+                "quantity_needed": 1,
                 "priority": 0,
             },
             {
-                "id": "part-2",
+                "id": "plate-2",
                 "project_id": "proj-1",
+                "source_filename": "cube.3mf",
+                "plate_number": 1,
                 "name": "Calibration Cube",
-                "filename": "cube.gcode",
-                "thumbnail_path": None,
+                "gcode_path": "proj-1_2",
                 "estimated_duration_seconds": 1800,
-                "filament_type": None,
-                "status": "pending",
+                "thumbnail_path": None,
+                "quantity_needed": 2,
                 "priority": 5,
             },
         ],
-        "jobs": [],
+        "jobs": [
+            {
+                "id": "job-1",
+                "plate_id": "plate-1",
+                "status": "queued",
+                "created_at": "2024-01-15T10:00:00",
+            },
+            {
+                "id": "job-2",
+                "plate_id": "plate-2",
+                "status": "queued",
+                "created_at": "2024-01-15T10:00:00",
+            },
+            {
+                "id": "job-3",
+                "plate_id": "plate-2",
+                "status": "queued",
+                "created_at": "2024-01-15T10:00:00",
+            },
+        ],
         "unavailability_windows": [],
     }
 
