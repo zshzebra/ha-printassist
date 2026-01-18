@@ -68,6 +68,8 @@ class PrintAssistMarkSuccessButton(PrintAssistButtonBase):
         active_job = self._store.get_active_job()
         if active_job:
             await self._store.async_complete_job(active_job.id)
+            if self._printer_monitor:
+                await self._printer_monitor.async_recheck_printer_state()
             self.coordinator.invalidate_schedule()
             await self.coordinator.async_request_refresh()
 
@@ -97,6 +99,8 @@ class PrintAssistMarkFailedButton(PrintAssistButtonBase):
         active_job = self._store.get_active_job()
         if active_job:
             await self._store.async_fail_job(active_job.id)
+            if self._printer_monitor:
+                await self._printer_monitor.async_recheck_printer_state()
             self.coordinator.invalidate_schedule()
             await self.coordinator.async_request_refresh()
 

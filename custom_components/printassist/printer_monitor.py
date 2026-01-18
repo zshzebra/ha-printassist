@@ -288,3 +288,27 @@ class BambuPrinterMonitor:
             "started_at": self._unknown_print_detected_at.isoformat(),
             "end_time": self.get_blocking_end_time().isoformat(),
         }
+
+    async def async_recheck_printer_state(self) -> None:
+        """Re-check printer state and match active print if needed."""
+        if not self.is_printing():
+            return
+
+        active_job = self._store.get_active_job()
+        if active_job:
+            return
+
+        task_name = self._get_task_name()
+        if not task_name:
+            return
+
+        job = self._match_job_to_task(task_name)
+        if job:
+            await self._store.async_start_job(job.id)
+            _LOGGER.info("Re-matched job %s to running print: %s", job.id, task_name)
+        else:
+            self._unknown_print_detected_at = datetime.now(timezone.utc)
+            self._unknown_print_task_name = task_name
+            _LOGGER.info("Unknown print detected on recheck: %s", task_name)
+
+        self._on_schedule_change()

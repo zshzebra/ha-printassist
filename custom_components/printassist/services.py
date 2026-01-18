@@ -197,23 +197,29 @@ async def async_setup_services(hass: HomeAssistant) -> None:
     async def handle_complete_job(call: ServiceCall) -> None:
         store: PrintAssistStore = hass.data[DOMAIN]["store"]
         coordinator: PrintAssistCoordinator = hass.data[DOMAIN]["coordinator"]
+        printer_monitor = hass.data[DOMAIN].get("printer_monitor")
 
         job_id = call.data[ATTR_JOB_ID]
         success = await store.async_complete_job(job_id)
         if success:
             _LOGGER.info("Completed job: %s", job_id)
+            if printer_monitor:
+                await printer_monitor.async_recheck_printer_state()
         coordinator.invalidate_schedule()
         await coordinator.async_request_refresh()
 
     async def handle_fail_job(call: ServiceCall) -> None:
         store: PrintAssistStore = hass.data[DOMAIN]["store"]
         coordinator: PrintAssistCoordinator = hass.data[DOMAIN]["coordinator"]
+        printer_monitor = hass.data[DOMAIN].get("printer_monitor")
 
         job_id = call.data[ATTR_JOB_ID]
         reason = call.data.get(ATTR_FAILURE_REASON)
         new_job = await store.async_fail_job(job_id, reason)
         if new_job:
             _LOGGER.info("Failed job: %s (reason: %s), created replacement: %s", job_id, reason, new_job.id)
+            if printer_monitor:
+                await printer_monitor.async_recheck_printer_state()
         coordinator.invalidate_schedule()
         await coordinator.async_request_refresh()
 
