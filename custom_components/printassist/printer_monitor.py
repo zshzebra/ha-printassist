@@ -1,4 +1,5 @@
 """Bambu Lab printer monitoring for PrintAssist."""
+
 from __future__ import annotations
 
 import asyncio
@@ -81,7 +82,9 @@ class BambuPrinterMonitor:
                 self._gcode_filename_entity = entity_id
 
         if not self._status_entity:
-            _LOGGER.warning("No print_status entity found for device %s", self._device_id)
+            _LOGGER.warning(
+                "No print_status entity found for device %s", self._device_id
+            )
             return False
 
         _LOGGER.debug(
@@ -97,14 +100,16 @@ class BambuPrinterMonitor:
         if not self._resolve_entities():
             return False
 
-        for attempt in range(5):
+        for attempt in range(10):
             state = self._hass.states.get(self._status_entity)
             if state:
                 break
             _LOGGER.debug("Waiting for status entity state (attempt %d)", attempt + 1)
-            await asyncio.sleep(1)
+            await asyncio.sleep(5)
         else:
-            _LOGGER.warning("Bambu status entity state not available: %s", self._status_entity)
+            _LOGGER.warning(
+                "Bambu status entity state not available: %s", self._status_entity
+            )
             return False
 
         self._last_status = state.state
@@ -248,7 +253,10 @@ class BambuPrinterMonitor:
         try:
             # Bambu integration reports local time - interpret as HA's timezone
             from homeassistant.util import dt as dt_util
-            dt = datetime.fromisoformat(state.state.replace("+00:00", "").replace("Z", ""))
+
+            dt = datetime.fromisoformat(
+                state.state.replace("+00:00", "").replace("Z", "")
+            )
             local_tz = dt_util.get_default_time_zone()
             dt = dt.replace(tzinfo=local_tz)
             return dt.astimezone(timezone.utc)
