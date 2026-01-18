@@ -21,6 +21,9 @@ class PrintAssistPanel extends LitElement {
       _ganttView: { type: String },
       _ganttOffset: { type: Number },
       _unavailDateOffset: { type: Number },
+      _computedAt: { type: String },
+      _nextBreakpoint: { type: String },
+      _nowLinePosition: { type: Number },
     };
   }
 
@@ -456,6 +459,28 @@ class PrintAssistPanel extends LitElement {
         background: var(--warning-color);
       }
 
+      .gantt-now-line {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        width: 2px;
+        background: var(--error-color);
+        z-index: 10;
+        pointer-events: none;
+      }
+
+      .gantt-now-line::before {
+        content: "NOW";
+        position: absolute;
+        top: -16px;
+        left: -14px;
+        font-size: 9px;
+        font-weight: 600;
+        color: var(--error-color);
+        background: var(--card-background-color);
+        padding: 0 4px;
+      }
+
       .gantt-job-thumbnail {
         width: 24px;
         height: 24px;
@@ -611,11 +636,32 @@ class PrintAssistPanel extends LitElement {
     this._ganttView = "day";
     this._ganttOffset = 0;
     this._unavailDateOffset = 0;
+    this._computedAt = null;
+    this._nextBreakpoint = null;
+    this._nowLinePosition = 0;
+    this._animationFrame = null;
   }
 
   connectedCallback() {
     super.connectedCallback();
     this._loadData();
+    this._startNowLineAnimation();
+  }
+
+  disconnectedCallback() {
+    super.disconnectedCallback();
+    if (this._animationFrame) {
+      cancelAnimationFrame(this._animationFrame);
+      this._animationFrame = null;
+    }
+  }
+
+  _startNowLineAnimation() {
+    const updateNowLine = () => {
+      this._nowLinePosition = Date.now();
+      this._animationFrame = requestAnimationFrame(updateNowLine);
+    };
+    updateNowLine();
   }
 
   async _loadData() {
@@ -630,6 +676,8 @@ class PrintAssistPanel extends LitElement {
       this._jobs = result.jobs || [];
       this._schedule = result.schedule || [];
       this._unavailability = result.unavailability_windows || [];
+      this._computedAt = result.computed_at || null;
+      this._nextBreakpoint = result.next_breakpoint || null;
     } catch (err) {
       console.error("Failed to load PrintAssist data:", err);
       this._projects = [];
@@ -637,6 +685,8 @@ class PrintAssistPanel extends LitElement {
       this._jobs = [];
       this._schedule = [];
       this._unavailability = [];
+      this._computedAt = null;
+      this._nextBreakpoint = null;
     }
   }
 
@@ -1093,6 +1143,13 @@ class PrintAssistPanel extends LitElement {
       })
       .filter(Boolean);
 
+    const now = new Date();
+    let nowLineHtml = "";
+    if (now >= start && now <= end) {
+      const nowPct = ((now - start) / (end - start)) * 100;
+      nowLineHtml = html`<div class="gantt-now-line" style="left: ${nowPct}%"></div>`;
+    }
+
     return html`
       <div class="gantt-controls">
         <div class="view-toggle">
@@ -1125,10 +1182,12 @@ class PrintAssistPanel extends LitElement {
           <div class="gantt-row" style="grid-template-columns: repeat(${hours}, ${cellWidth}px)">
             <div class="gantt-row-label">Unavailable</div>
             ${unavailBlocks}
+            ${nowLineHtml}
           </div>
           <div class="gantt-row" style="grid-template-columns: repeat(${hours}, ${cellWidth}px)">
             <div class="gantt-row-label">Print Queue</div>
             ${jobBlocks}
+            ${nowLineHtml}
           </div>
         </div>
       </div>

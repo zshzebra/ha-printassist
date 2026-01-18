@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 import sys
 sys.path.insert(0, str(__file__).rsplit("/", 2)[0])
 
-from custom_components.printassist.scheduler import PrintScheduler, ScheduledJob
+from custom_components.printassist.scheduler import PrintScheduler, ScheduledJob, ScheduleResult
 from custom_components.printassist.store import Plate, Job, UnavailabilityWindow
 
 
@@ -53,7 +53,10 @@ def make_window(id: str, start: datetime, end: datetime) -> UnavailabilityWindow
 class TestPrintScheduler:
     def test_empty_queue(self):
         scheduler = PrintScheduler([], {}, [])
-        assert scheduler.calculate_schedule() == []
+        result = scheduler.calculate_schedule()
+        assert isinstance(result, ScheduleResult)
+        assert result.jobs == []
+        assert result.next_breakpoint is None
         assert scheduler.get_next_recommended() is None
 
     def test_single_job_no_windows(self):
@@ -61,11 +64,12 @@ class TestPrintScheduler:
         job = make_job("j1", "p1")
         scheduler = PrintScheduler([job], {"p1": plate}, [])
 
-        schedule = scheduler.calculate_schedule()
-        assert len(schedule) == 1
-        assert schedule[0].job_id == "j1"
-        assert schedule[0].plate_id == "p1"
-        assert schedule[0].spans_unavailability is False
+        result = scheduler.calculate_schedule()
+        assert len(result.jobs) == 1
+        assert result.jobs[0].job_id == "j1"
+        assert result.jobs[0].plate_id == "p1"
+        assert result.jobs[0].spans_unavailability is False
+        assert result.next_breakpoint is None
 
     def test_priority_ordering(self):
         plates = {
@@ -80,8 +84,8 @@ class TestPrintScheduler:
         ]
         scheduler = PrintScheduler(jobs, plates, [])
 
-        schedule = scheduler.calculate_schedule()
-        assert [s.job_id for s in schedule] == ["j2", "j3", "j1"]
+        result = scheduler.calculate_schedule()
+        assert [s.job_id for s in result.jobs] == ["j2", "j3", "j1"]
 
     def test_fits_before_unavailability(self):
         now = utc(2024, 1, 15, 18, 0, 0)
@@ -91,10 +95,10 @@ class TestPrintScheduler:
         job = make_job("j1", "p1")
         scheduler = PrintScheduler([job], {"p1": plate}, [window], current_time=now)
 
-        schedule = scheduler.calculate_schedule()
-        assert len(schedule) == 1
-        assert schedule[0].spans_unavailability is False
-        assert schedule[0].scheduled_end <= utc(2024, 1, 15, 22, 0, 0)
+        result = scheduler.calculate_schedule()
+        assert len(result.jobs) == 1
+        assert result.jobs[0].spans_unavailability is False
+        assert result.jobs[0].scheduled_end <= utc(2024, 1, 15, 22, 0, 0)
 
     def test_does_not_fit_schedules_after_short_unavail(self):
         now = utc(2024, 1, 15, 20, 0, 0)
@@ -104,9 +108,9 @@ class TestPrintScheduler:
         job = make_job("j1", "p1")
         scheduler = PrintScheduler([job], {"p1": plate}, [window], current_time=now)
 
-        schedule = scheduler.calculate_schedule()
-        assert len(schedule) == 1
-        assert schedule[0].scheduled_start >= utc(2024, 1, 15, 23, 30, 0)
+        result = scheduler.calculate_schedule()
+        assert len(result.jobs) == 1
+        assert result.jobs[0].scheduled_start >= utc(2024, 1, 15, 23, 30, 0)
 
     def test_selects_fitting_job_over_priority(self):
         now = utc(2024, 1, 15, 20, 0, 0)
@@ -122,9 +126,9 @@ class TestPrintScheduler:
         ]
         scheduler = PrintScheduler(jobs, plates, [window], current_time=now)
 
-        schedule = scheduler.calculate_schedule()
-        assert schedule[0].job_id == "j2"
-        assert schedule[0].spans_unavailability is False
+        result = scheduler.calculate_schedule()
+        assert result.jobs[0].job_id == "j2"
+        assert result.jobs[0].spans_unavailability is False
 
     def test_printer_busy(self):
         now = utc(2024, 1, 15, 18, 0, 0)
@@ -134,8 +138,8 @@ class TestPrintScheduler:
         job = make_job("j1", "p1")
         scheduler = PrintScheduler([job], {"p1": plate}, [], current_time=now, active_job_end=busy_until)
 
-        schedule = scheduler.calculate_schedule()
-        assert schedule[0].scheduled_start == busy_until
+        result = scheduler.calculate_schedule()
+        assert result.jobs[0].scheduled_start == busy_until
 
     def test_get_next_recommended(self):
         plates = {
@@ -164,8 +168,8 @@ class TestPrintScheduler:
         job = make_job("j1", "p1")
         scheduler = PrintScheduler([job], {"p1": plate}, windows, current_time=now)
 
-        schedule = scheduler.calculate_schedule()
-        assert schedule[0].scheduled_end <= utc(2024, 1, 15, 9, 0, 0)
+        result = scheduler.calculate_schedule()
+        assert result.jobs[0].scheduled_end <= utc(2024, 1, 15, 9, 0, 0)
 
     def test_starts_after_current_unavailability(self):
         now = utc(2024, 1, 15, 23, 0, 0)
@@ -175,8 +179,8 @@ class TestPrintScheduler:
         job = make_job("j1", "p1")
         scheduler = PrintScheduler([job], {"p1": plate}, [window], current_time=now)
 
-        schedule = scheduler.calculate_schedule()
-        assert schedule[0].scheduled_start >= utc(2024, 1, 16, 7, 0, 0)
+        result = scheduler.calculate_schedule()
+        assert result.jobs[0].scheduled_start >= utc(2024, 1, 16, 7, 0, 0)
 
     def test_long_unavailability_spans(self):
         now = utc(2024, 1, 15, 21, 0, 0)
@@ -186,9 +190,9 @@ class TestPrintScheduler:
         job = make_job("j1", "p1")
         scheduler = PrintScheduler([job], {"p1": plate}, [window], current_time=now)
 
-        schedule = scheduler.calculate_schedule()
-        assert len(schedule) == 1
-        assert schedule[0].spans_unavailability is True
+        result = scheduler.calculate_schedule()
+        assert len(result.jobs) == 1
+        assert result.jobs[0].spans_unavailability is True
 
     def test_schedule_has_timestamps(self):
         now = utc(2024, 1, 15, 18, 0, 0)
@@ -196,7 +200,48 @@ class TestPrintScheduler:
         job = make_job("j1", "p1")
         scheduler = PrintScheduler([job], {"p1": plate}, [], current_time=now)
 
-        schedule = scheduler.calculate_schedule()
-        assert schedule[0].scheduled_start == now
-        assert schedule[0].scheduled_end == now + timedelta(hours=1)
-        assert schedule[0].estimated_duration_seconds == 3600
+        result = scheduler.calculate_schedule()
+        assert result.jobs[0].scheduled_start == now
+        assert result.jobs[0].scheduled_end == now + timedelta(hours=1)
+        assert result.jobs[0].estimated_duration_seconds == 3600
+
+    def test_schedule_result_has_computed_at(self):
+        now = utc(2024, 1, 15, 18, 0, 0)
+        plate = make_plate("p1", "Test", 3600)
+        job = make_job("j1", "p1")
+        scheduler = PrintScheduler([job], {"p1": plate}, [], current_time=now)
+
+        result = scheduler.calculate_schedule()
+        assert result.computed_at == now
+        assert result.cursor_at_computation == now
+
+    def test_breakpoint_when_job_fits_before_unavailability(self):
+        now = utc(2024, 1, 15, 18, 0, 0)
+        window = make_window("w1", utc(2024, 1, 15, 22, 0, 0), utc(2024, 1, 16, 7, 0, 0))
+
+        plate = make_plate("p1", "TwoHourPrint", 7200)
+        job = make_job("j1", "p1")
+        scheduler = PrintScheduler([job], {"p1": plate}, [window], current_time=now)
+
+        result = scheduler.calculate_schedule()
+        assert result.next_breakpoint == utc(2024, 1, 15, 20, 0, 0)
+
+    def test_breakpoint_is_unavail_start_when_job_wont_fit_soon(self):
+        now = utc(2024, 1, 15, 19, 30, 0)
+        window = make_window("w1", utc(2024, 1, 15, 22, 0, 0), utc(2024, 1, 16, 7, 0, 0))
+
+        plate = make_plate("p1", "ThreeHourPrint", 10800)
+        job = make_job("j1", "p1")
+        scheduler = PrintScheduler([job], {"p1": plate}, [window], current_time=now)
+
+        result = scheduler.calculate_schedule()
+        assert result.next_breakpoint == utc(2024, 1, 15, 22, 0, 0)
+
+    def test_no_breakpoint_without_unavailability(self):
+        now = utc(2024, 1, 15, 18, 0, 0)
+        plate = make_plate("p1", "Test", 3600)
+        job = make_job("j1", "p1")
+        scheduler = PrintScheduler([job], {"p1": plate}, [], current_time=now)
+
+        result = scheduler.calculate_schedule()
+        assert result.next_breakpoint is None

@@ -52,14 +52,20 @@ def ws_get_data(
     jobs = [asdict(j) for j in store.get_jobs()]
 
     schedule = []
-    if coordinator.data and "schedule" in coordinator.data:
-        schedule = coordinator.data["schedule"]
+    computed_at = None
+    next_breakpoint = None
+    if coordinator.data:
+        schedule = coordinator.data.get("schedule", [])
+        computed_at = coordinator.data.get("computed_at")
+        next_breakpoint = coordinator.data.get("next_breakpoint")
 
     connection.send_result(msg["id"], {
         "projects": projects,
         "plates": plates,
         "jobs": jobs,
         "schedule": schedule,
+        "computed_at": computed_at,
+        "next_breakpoint": next_breakpoint,
         "unavailability_windows": [asdict(w) for w in store.get_unavailability_windows()],
     })
 

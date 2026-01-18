@@ -2,14 +2,16 @@
 from __future__ import annotations
 
 from dataclasses import asdict
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+import hashlib
+import json
 import logging
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from .const import DOMAIN
-from .scheduler import PrintScheduler, ScheduledJob
+from .scheduler import PrintScheduler, ScheduledJob, ScheduleResult
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
@@ -29,6 +31,36 @@ class PrintAssistCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             update_interval=UPDATE_INTERVAL,
         )
         self._store = store
+        self._schedule_result: ScheduleResult | None = None
+        self._last_input_hash: str | None = None
+
+    def _compute_input_hash(self) -> str:
+        queued_jobs = self._store.get_queued_jobs()
+        plates = self._store.get_plates()
+        unavailability = self._store.get_unavailability_windows()
+        active_job = self._store.get_active_job()
+
+        data = {
+            "jobs": [(j.id, j.plate_id, j.status) for j in queued_jobs],
+            "plates": [(p.id, p.priority, p.estimated_duration_seconds) for p in plates],
+            "windows": [(w.id, w.start, w.end) for w in unavailability],
+            "active": active_job.id if active_job else None,
+        }
+        return hashlib.md5(json.dumps(data, sort_keys=True).encode()).hexdigest()
+
+    def _needs_recompute(self) -> bool:
+        if not self._schedule_result:
+            return True
+
+        now = datetime.now(timezone.utc)
+        if self._schedule_result.next_breakpoint and now >= self._schedule_result.next_breakpoint:
+            return True
+
+        current_hash = self._compute_input_hash()
+        if current_hash != self._last_input_hash:
+            return True
+
+        return False
 
     def _estimate_active_job_end(self) -> datetime | None:
         active_job = self._store.get_active_job()
@@ -42,7 +74,10 @@ class PrintAssistCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         started = datetime.fromisoformat(active_job.started_at)
         return started + timedelta(seconds=plate.estimated_duration_seconds)
 
-    def _run_scheduler(self) -> list[ScheduledJob]:
+    def _run_scheduler(self) -> ScheduleResult:
+        if not self._needs_recompute() and self._schedule_result:
+            return self._schedule_result
+
         queued_jobs = self._store.get_queued_jobs()
         plates = self._store.get_plates()
         plates_by_id = {p.id: p for p in plates}
@@ -56,7 +91,9 @@ class PrintAssistCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             active_job_end=active_job_end,
         )
 
-        return scheduler.calculate_schedule()
+        self._schedule_result = scheduler.calculate_schedule()
+        self._last_input_hash = self._compute_input_hash()
+        return self._schedule_result
 
     async def _async_update_data(self) -> dict[str, Any]:
         queued_jobs = self._store.get_queued_jobs()
@@ -73,9 +110,9 @@ class PrintAssistCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if active_job:
             active_plate = self._store.get_plate(active_job.plate_id)
 
-        scheduled = self._run_scheduler()
+        schedule_result = self._run_scheduler()
         schedule_data = []
-        for sj in scheduled:
+        for sj in schedule_result.jobs:
             schedule_data.append({
                 "job_id": sj.job_id,
                 "plate_id": sj.plate_id,
@@ -89,7 +126,7 @@ class PrintAssistCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "thumbnail_path": sj.thumbnail_path,
             })
 
-        next_scheduled = scheduled[0] if scheduled else None
+        next_scheduled = schedule_result.jobs[0] if schedule_result.jobs else None
 
         return {
             "projects": self._store.get_projects(),
@@ -102,5 +139,7 @@ class PrintAssistCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "next_plate": sorted_jobs[0][1] if sorted_jobs else None,
             "next_scheduled": next_scheduled,
             "schedule": schedule_data,
+            "computed_at": schedule_result.computed_at.isoformat(),
+            "next_breakpoint": schedule_result.next_breakpoint.isoformat() if schedule_result.next_breakpoint else None,
             "unavailability_windows": self._store.get_unavailability_windows(),
         }

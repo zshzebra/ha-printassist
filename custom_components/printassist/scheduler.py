@@ -12,6 +12,14 @@ LONG_UNAVAILABILITY_THRESHOLD = 3 * 3600
 SCHEDULE_HORIZON_DAYS = 7
 
 
+@dataclass
+class ScheduleResult:
+    jobs: list[ScheduledJob]
+    computed_at: datetime
+    cursor_at_computation: datetime
+    next_breakpoint: datetime | None
+
+
 def _make_aware(dt: datetime) -> datetime:
     """Ensure datetime is timezone-aware (UTC)."""
     if dt.tzinfo is None:
@@ -97,7 +105,26 @@ class PrintScheduler:
         remaining.sort(key=lambda x: (-x[1].priority, -x[2]))
         return remaining
 
-    def calculate_schedule(self) -> list[ScheduledJob]:
+    def _calculate_breakpoint(
+        self, first_job: ScheduledJob | None, cursor: datetime
+    ) -> datetime | None:
+        if not first_job:
+            return None
+
+        next_unavail = self._find_next_unavailability(cursor)
+        if not next_unavail:
+            return None
+
+        unavail_start, unavail_end = next_unavail
+
+        if first_job.scheduled_end <= unavail_start:
+            breakpoint = unavail_start - timedelta(seconds=first_job.estimated_duration_seconds)
+            if breakpoint > self._now:
+                return breakpoint
+
+        return unavail_start
+
+    def calculate_schedule(self) -> ScheduleResult:
         schedule: list[ScheduledJob] = []
         cursor = self._cursor
 
@@ -201,8 +228,16 @@ class PrintScheduler:
                     cursor = end_time
                 remaining = []
 
-        return schedule
+        first_job = schedule[0] if schedule else None
+        breakpoint = self._calculate_breakpoint(first_job, self._cursor)
+
+        return ScheduleResult(
+            jobs=schedule,
+            computed_at=self._now,
+            cursor_at_computation=self._cursor,
+            next_breakpoint=breakpoint,
+        )
 
     def get_next_recommended(self) -> ScheduledJob | None:
-        schedule = self.calculate_schedule()
-        return schedule[0] if schedule else None
+        result = self.calculate_schedule()
+        return result.jobs[0] if result.jobs else None
