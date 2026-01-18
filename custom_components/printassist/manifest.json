@@ -1,0 +1,12 @@
+{
+  "domain": "printassist",
+  "name": "PrintAssist",
+  "codeowners": [],
+  "config_flow": true,
+  "dependencies": ["http"],
+  "documentation": "https://github.com/your-username/ha-printassist",
+  "iot_class": "local_polling",
+  "issue_tracker": "https://github.com/your-username/ha-printassist/issues",
+  "requirements": [],
+  "version": "0.1.0"
+}

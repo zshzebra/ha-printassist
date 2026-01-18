@@ -1,0 +1,171 @@
+create_project:
+  name: Create Project
+  description: Create a new project to organize print plates
+  fields:
+    name:
+      name: Name
+      description: Project name
+      required: true
+      example: "Benchy Collection"
+      selector:
+        text:
+    notes:
+      name: Notes
+      description: Optional project notes
+      required: false
+      selector:
+        text:
+          multiline: true
+
+delete_project:
+  name: Delete Project
+  description: Delete a project and all its plates and jobs
+  fields:
+    project_id:
+      name: Project ID
+      description: The project to delete
+      required: true
+      selector:
+        text:
+
+upload_3mf:
+  name: Upload 3MF
+  description: Upload a 3MF or gcode file, extracting all plates
+  fields:
+    project_id:
+      name: Project ID
+      description: Project to add plates to
+      required: true
+      selector:
+        text:
+    filename:
+      name: Filename
+      description: Original filename
+      required: true
+      selector:
+        text:
+    file_content:
+      name: File Content
+      description: Base64 encoded file content
+      required: true
+      selector:
+        text:
+
+delete_plate:
+  name: Delete Plate
+  description: Delete a plate and its jobs from a project
+  fields:
+    plate_id:
+      name: Plate ID
+      description: The plate to delete
+      required: true
+      selector:
+        text:
+
+set_plate_priority:
+  name: Set Plate Priority
+  description: Set manual priority for plate ordering
+  fields:
+    plate_id:
+      name: Plate ID
+      description: The plate to reorder
+      required: true
+      selector:
+        text:
+    priority:
+      name: Priority
+      description: Priority value (higher = printed first)
+      required: true
+      default: 0
+      selector:
+        number:
+          min: -100
+          max: 100
+
+set_quantity:
+  name: Set Quantity
+  description: Set how many times to print a plate
+  fields:
+    plate_id:
+      name: Plate ID
+      description: The plate to configure
+      required: true
+      selector:
+        text:
+    quantity:
+      name: Quantity
+      description: Number of prints needed
+      required: true
+      default: 1
+      selector:
+        number:
+          min: 0
+          max: 100
+          mode: box
+
+start_job:
+  name: Start Job
+  description: Start printing a queued job
+  fields:
+    job_id:
+      name: Job ID
+      description: The job to start
+      required: true
+      selector:
+        text:
+
+complete_job:
+  name: Complete Job
+  description: Mark the current print job as completed
+  fields:
+    job_id:
+      name: Job ID
+      description: The job to mark complete
+      required: true
+      selector:
+        text:
+
+fail_job:
+  name: Fail Job
+  description: Mark the current print job as failed (creates replacement job)
+  fields:
+    job_id:
+      name: Job ID
+      description: The job to mark failed
+      required: true
+      selector:
+        text:
+    failure_reason:
+      name: Failure Reason
+      description: Optional reason for failure
+      required: false
+      selector:
+        text:
+
+add_unavailability:
+  name: Add Unavailability
+  description: Mark a time block when you cannot manage prints
+  fields:
+    start:
+      name: Start Time
+      description: Start of unavailable period
+      required: true
+      selector:
+        datetime:
+    end:
+      name: End Time
+      description: End of unavailable period
+      required: true
+      selector:
+        datetime:
+
+remove_unavailability:
+  name: Remove Unavailability
+  description: Remove an unavailability window
+  fields:
+    window_id:
+      name: Window ID
+      description: The window to remove
+      required: true
+      selector:
+        text:

@@ -1,0 +1,62 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "PrintAssist Setup",
+        "description": "Configure PrintAssist to manage your 3D printing queue.",
+        "data": {
+          "printer_entity": "Printer Status Entity (optional)"
+        }
+      }
+    },
+    "abort": {
+      "single_instance_allowed": "Already configured. Only a single configuration possible."
+    }
+  },
+  "services": {
+    "create_project": {
+      "name": "Create Project",
+      "description": "Create a new project to organize print plates."
+    },
+    "delete_project": {
+      "name": "Delete Project",
+      "description": "Delete a project and all its plates and jobs."
+    },
+    "upload_3mf": {
+      "name": "Upload 3MF",
+      "description": "Upload a 3MF or gcode file, extracting all plates."
+    },
+    "delete_plate": {
+      "name": "Delete Plate",
+      "description": "Delete a plate and its jobs from a project."
+    },
+    "set_plate_priority": {
+      "name": "Set Plate Priority",
+      "description": "Set manual priority for plate ordering."
+    },
+    "set_quantity": {
+      "name": "Set Quantity",
+      "description": "Set how many times to print a plate."
+    },
+    "start_job": {
+      "name": "Start Job",
+      "description": "Start printing a queued job."
+    },
+    "complete_job": {
+      "name": "Complete Job",
+      "description": "Mark the current print job as completed."
+    },
+    "fail_job": {
+      "name": "Fail Job",
+      "description": "Mark the current print job as failed (creates replacement job)."
+    },
+    "add_unavailability": {
+      "name": "Add Unavailability",
+      "description": "Mark a time block when you cannot manage prints."
+    },
+    "remove_unavailability": {
+      "name": "Remove Unavailability",
+      "description": "Remove an unavailability window."
+    }
+  }
+}
