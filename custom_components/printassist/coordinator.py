@@ -16,6 +16,7 @@ from .scheduler import PrintScheduler, ScheduledJob, ScheduleResult
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
     from .store import PrintAssistStore
+    from .printer_monitor import BambuPrinterMonitor
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -23,7 +24,12 @@ UPDATE_INTERVAL = timedelta(seconds=30)
 
 
 class PrintAssistCoordinator(DataUpdateCoordinator[dict[str, Any]]):
-    def __init__(self, hass: HomeAssistant, store: PrintAssistStore) -> None:
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        store: PrintAssistStore,
+        printer_monitor: BambuPrinterMonitor | None = None,
+    ) -> None:
         super().__init__(
             hass,
             _LOGGER,
@@ -31,8 +37,12 @@ class PrintAssistCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             update_interval=UPDATE_INTERVAL,
         )
         self._store = store
+        self._printer_monitor = printer_monitor
         self._schedule_result: ScheduleResult | None = None
         self._last_input_hash: str | None = None
+
+    def set_printer_monitor(self, monitor: BambuPrinterMonitor) -> None:
+        self._printer_monitor = monitor
 
     def _compute_input_hash(self) -> str:
         queued_jobs = self._store.get_queued_jobs()
@@ -40,11 +50,18 @@ class PrintAssistCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         unavailability = self._store.get_unavailability_windows()
         active_job = self._store.get_active_job()
 
+        blocking_end = None
+        if self._printer_monitor:
+            be = self._printer_monitor.get_blocking_end_time()
+            if be:
+                blocking_end = be.isoformat()
+
         data = {
             "jobs": [(j.id, j.plate_id, j.status) for j in queued_jobs],
             "plates": [(p.id, p.priority, p.estimated_duration_seconds) for p in plates],
             "windows": [(w.id, w.start, w.end) for w in unavailability],
             "active": active_job.id if active_job else None,
+            "blocking_end": blocking_end,
         }
         return hashlib.md5(json.dumps(data, sort_keys=True).encode()).hexdigest()
 
@@ -62,16 +79,33 @@ class PrintAssistCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         return False
 
+    def invalidate_schedule(self) -> None:
+        """Force schedule recalculation on next update."""
+        self._schedule_result = None
+        self._last_input_hash = None
+
     def _estimate_active_job_end(self) -> datetime | None:
+        if self._printer_monitor:
+            blocking_end = self._printer_monitor.get_blocking_end_time()
+            if blocking_end:
+                return blocking_end
+
         active_job = self._store.get_active_job()
         if not active_job or not active_job.started_at:
             return None
+
+        if self._printer_monitor:
+            end_time = self._printer_monitor.get_end_time()
+            if end_time:
+                return end_time
 
         plate = self._store.get_plate(active_job.plate_id)
         if not plate:
             return None
 
         started = datetime.fromisoformat(active_job.started_at)
+        if started.tzinfo is None:
+            started = started.replace(tzinfo=timezone.utc)
         return started + timedelta(seconds=plate.estimated_duration_seconds)
 
     def _run_scheduler(self) -> ScheduleResult:

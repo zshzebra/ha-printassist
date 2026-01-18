@@ -13,11 +13,12 @@ from homeassistant.components.http import HomeAssistantView, StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.components.frontend import async_register_built_in_panel
+from homeassistant.components.frontend import async_register_built_in_panel, async_remove_panel
 
-from .const import DOMAIN
+from .const import DOMAIN, CONF_BAMBU_DEVICE_ID
 from .coordinator import PrintAssistCoordinator
 from .file_handler import FileHandler
+from .printer_monitor import BambuPrinterMonitor
 from .services import async_setup_services, async_unload_services
 from .store import PrintAssistStore
 
@@ -111,6 +112,7 @@ class PrintAssistUploadView(HomeAssistantView):
                 return web.json_response({"error": "No plates found in file"}, status=400)
 
             await store.async_add_plates(plates)
+            coordinator.invalidate_schedule()
             await coordinator.async_request_refresh()
 
             return web.json_response({
@@ -132,10 +134,27 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     file_handler = FileHandler(hass)
     coordinator = PrintAssistCoordinator(hass, store)
 
+    printer_monitor = None
+    bambu_device_id = entry.data.get(CONF_BAMBU_DEVICE_ID)
+    if bambu_device_id:
+        printer_monitor = BambuPrinterMonitor(
+            hass,
+            bambu_device_id,
+            store,
+            on_schedule_change=coordinator.invalidate_schedule,
+        )
+        if await printer_monitor.async_setup():
+            coordinator.set_printer_monitor(printer_monitor)
+            _LOGGER.info("Bambu printer monitor active for device: %s", bambu_device_id)
+        else:
+            _LOGGER.warning("Failed to setup Bambu printer monitor")
+            printer_monitor = None
+
     hass.data[DOMAIN] = {
         "store": store,
         "file_handler": file_handler,
         "coordinator": coordinator,
+        "printer_monitor": printer_monitor,
         "entry": entry,
     }
 
@@ -155,6 +174,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             cache_headers=False,
         ),
     ])
+
+    if "printassist" in hass.data.get("frontend_panels", {}):
+        async_remove_panel(hass, "printassist")
 
     async_register_built_in_panel(
         hass,
@@ -177,6 +199,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     await async_unload_services(hass)
+
+    printer_monitor = hass.data[DOMAIN].get("printer_monitor")
+    if printer_monitor:
+        await printer_monitor.async_unload()
+
+    async_remove_panel(hass, "printassist")
+
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unload_ok:
         hass.data.pop(DOMAIN)

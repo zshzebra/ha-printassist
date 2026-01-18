@@ -7,7 +7,7 @@ NAME: Final = "PrintAssist"
 STORAGE_KEY: Final = f"{DOMAIN}.storage"
 STORAGE_VERSION: Final = 1
 
-CONF_PRINTER_ENTITY: Final = "printer_entity"
+CONF_BAMBU_DEVICE_ID: Final = "bambu_device_id"
 
 ATTR_PROJECT_ID: Final = "project_id"
 ATTR_PROJECT_NAME: Final = "name"
@@ -42,3 +42,14 @@ SERVICE_COMPLETE_JOB: Final = "complete_job"
 SERVICE_FAIL_JOB: Final = "fail_job"
 SERVICE_ADD_UNAVAILABILITY: Final = "add_unavailability"
 SERVICE_REMOVE_UNAVAILABILITY: Final = "remove_unavailability"
+
+BAMBU_STATUS_PREPARE: Final = "Prepare"
+BAMBU_STATUS_IDLE: Final = "Idle"
+BAMBU_STATUS_FINISH: Final = "Finish"
+BAMBU_STATUS_RUNNING: Final = "Running"
+BAMBU_STATUS_OFFLINE: Final = "Offline"
+
+BAMBU_SUFFIX_STATUS: Final = "_print_status"
+BAMBU_SUFFIX_END_TIME: Final = "_end_time"
+BAMBU_SUFFIX_TASK_NAME: Final = "_task_name"
+BAMBU_SUFFIX_GCODE_FILENAME: Final = "_gcode_filename"

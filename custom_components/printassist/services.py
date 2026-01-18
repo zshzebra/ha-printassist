@@ -113,6 +113,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         deleted = await store.async_delete_project(project_id)
         if deleted:
             _LOGGER.info("Deleted project: %s", project_id)
+        coordinator.invalidate_schedule()
         await coordinator.async_request_refresh()
 
     async def handle_upload_3mf(call: ServiceCall) -> None:
@@ -139,6 +140,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         if plates:
             await store.async_add_plates(plates)
             _LOGGER.info("Uploaded %d plates from %s", len(plates), filename)
+        coordinator.invalidate_schedule()
         await coordinator.async_request_refresh()
 
     async def handle_delete_plate(call: ServiceCall) -> None:
@@ -152,6 +154,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
             await file_handler.delete_plate_files(plate)
             await store.async_delete_plate(plate_id)
             _LOGGER.info("Deleted plate: %s", plate_id)
+        coordinator.invalidate_schedule()
         await coordinator.async_request_refresh()
 
     async def handle_set_priority(call: ServiceCall) -> None:
@@ -162,6 +165,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         priority = call.data[ATTR_PRIORITY]
         await store.async_set_plate_priority(plate_id, priority)
         _LOGGER.info("Set priority for %s to %d", plate_id, priority)
+        coordinator.invalidate_schedule()
         await coordinator.async_request_refresh()
 
     async def handle_set_quantity(call: ServiceCall) -> None:
@@ -172,6 +176,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         quantity = call.data[ATTR_QUANTITY]
         await store.async_set_plate_quantity(plate_id, quantity)
         _LOGGER.info("Set quantity for %s to %d", plate_id, quantity)
+        coordinator.invalidate_schedule()
         await coordinator.async_request_refresh()
 
     async def handle_start_job(call: ServiceCall) -> None:
@@ -186,6 +191,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         success = await store.async_start_job(job_id)
         if success:
             _LOGGER.info("Started job: %s", job_id)
+        coordinator.invalidate_schedule()
         await coordinator.async_request_refresh()
 
     async def handle_complete_job(call: ServiceCall) -> None:
@@ -196,6 +202,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         success = await store.async_complete_job(job_id)
         if success:
             _LOGGER.info("Completed job: %s", job_id)
+        coordinator.invalidate_schedule()
         await coordinator.async_request_refresh()
 
     async def handle_fail_job(call: ServiceCall) -> None:
@@ -207,6 +214,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         new_job = await store.async_fail_job(job_id, reason)
         if new_job:
             _LOGGER.info("Failed job: %s (reason: %s), created replacement: %s", job_id, reason, new_job.id)
+        coordinator.invalidate_schedule()
         await coordinator.async_request_refresh()
 
     async def handle_add_unavailability(call: ServiceCall) -> None:
@@ -217,6 +225,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         end = call.data[ATTR_END]
         await store.async_add_unavailability(start, end)
         _LOGGER.info("Added unavailability: %s to %s", start, end)
+        coordinator.invalidate_schedule()
         await coordinator.async_request_refresh()
 
     async def handle_remove_unavailability(call: ServiceCall) -> None:
@@ -226,6 +235,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         window_id = call.data[ATTR_WINDOW_ID]
         await store.async_remove_unavailability(window_id)
         _LOGGER.info("Removed unavailability: %s", window_id)
+        coordinator.invalidate_schedule()
         await coordinator.async_request_refresh()
 
     hass.services.async_register(

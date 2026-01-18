@@ -8,7 +8,7 @@ import voluptuous as vol
 from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
 from homeassistant.helpers import selector
 
-from .const import DOMAIN, CONF_PRINTER_ENTITY
+from .const import DOMAIN, CONF_BAMBU_DEVICE_ID
 
 
 class PrintAssistConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -32,11 +32,11 @@ class PrintAssistConfigFlow(ConfigFlow, domain=DOMAIN):
         return self.async_show_form(
             step_id="user",
             data_schema=vol.Schema({
-                vol.Optional(CONF_PRINTER_ENTITY): selector.EntitySelector(
-                    selector.EntitySelectorConfig(domain="sensor")
+                vol.Optional(CONF_BAMBU_DEVICE_ID): selector.DeviceSelector(
+                    selector.DeviceSelectorConfig(
+                        integration="bambu_lab",
+                        multiple=False,
+                    )
                 ),
             }),
-            description_placeholders={
-                "description": "Configure PrintAssist to manage your 3D printing queue."
-            },
         )
