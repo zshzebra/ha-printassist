@@ -64,33 +64,35 @@ class PrintAssistNextPrintSensor(PrintAssistSensorBase):
     def native_value(self) -> str | None:
         if not self.coordinator.data:
             return None
-        next_plate = self.coordinator.data.get("next_plate")
-        return next_plate.name if next_plate else None
+        next_scheduled = self.coordinator.data.get("next_scheduled")
+        return next_scheduled.plate_name if next_scheduled else None
 
     @property
     def entity_picture(self) -> str | None:
         if not self.coordinator.data:
             return None
-        next_plate = self.coordinator.data.get("next_plate")
-        if next_plate and next_plate.thumbnail_path:
-            return next_plate.thumbnail_path
+        next_scheduled = self.coordinator.data.get("next_scheduled")
+        if next_scheduled and next_scheduled.thumbnail_path:
+            return next_scheduled.thumbnail_path
         return None
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         if not self.coordinator.data:
             return {}
-        next_job = self.coordinator.data.get("next_job")
-        next_plate = self.coordinator.data.get("next_plate")
-        if not next_job or not next_plate:
+        next_scheduled = self.coordinator.data.get("next_scheduled")
+        if not next_scheduled:
             return {}
         return {
-            "job_id": next_job.id,
-            "plate_id": next_plate.id,
-            "project_id": next_plate.project_id,
-            "estimated_duration_seconds": next_plate.estimated_duration_seconds,
-            "thumbnail": next_plate.thumbnail_path,
-            "gcode_path": next_plate.gcode_path,
+            "job_id": next_scheduled.job_id,
+            "plate_id": next_scheduled.plate_id,
+            "plate_number": next_scheduled.plate_number,
+            "source_filename": next_scheduled.source_filename,
+            "estimated_duration_seconds": next_scheduled.estimated_duration_seconds,
+            "scheduled_start": next_scheduled.scheduled_start.isoformat(),
+            "scheduled_end": next_scheduled.scheduled_end.isoformat(),
+            "spans_unavailability": next_scheduled.spans_unavailability,
+            "thumbnail": next_scheduled.thumbnail_path,
         }
 
 
