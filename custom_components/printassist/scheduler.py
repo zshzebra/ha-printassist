@@ -1,12 +1,15 @@
 """Scheduler for optimizing print queue based on availability windows."""
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .store import Plate, Job, UnavailabilityWindow
+
+_LOGGER = logging.getLogger(__name__)
 
 LONG_UNAVAILABILITY_THRESHOLD = 3 * 3600
 SCHEDULE_HORIZON_DAYS = 7
@@ -128,8 +131,14 @@ class PrintScheduler:
         schedule: list[ScheduledJob] = []
         cursor = self._cursor
 
+        _LOGGER.debug(
+            "Scheduler: now=%s, cursor=%s, windows=%s",
+            self._now, cursor, self._windows
+        )
+
         during_window = self._is_during_unavailability(cursor)
         if during_window:
+            _LOGGER.debug("Cursor during unavailability, moving to %s", during_window[1])
             cursor = during_window[1]
 
         remaining = self._build_remaining()
@@ -150,6 +159,10 @@ class PrintScheduler:
 
             if next_unavail and unavail_duration >= LONG_UNAVAILABILITY_THRESHOLD:
                 fitting = [(j, p, d) for j, p, d in remaining if d <= available_time]
+                _LOGGER.debug(
+                    "Long unavail: available=%ds, fitting=%d jobs",
+                    available_time, len(fitting)
+                )
                 if fitting:
                     job, plate, duration = fitting[0]
                     end_time = cursor + timedelta(seconds=duration)

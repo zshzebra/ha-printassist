@@ -1,6 +1,7 @@
 """Bambu Lab printer monitoring for PrintAssist."""
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -96,29 +97,44 @@ class BambuPrinterMonitor:
         if not self._resolve_entities():
             return False
 
-        state = self._hass.states.get(self._status_entity)
-        if not state:
-            _LOGGER.warning("Bambu status entity not found: %s", self._status_entity)
+        for attempt in range(5):
+            state = self._hass.states.get(self._status_entity)
+            if state:
+                break
+            _LOGGER.debug("Waiting for status entity state (attempt %d)", attempt + 1)
+            await asyncio.sleep(1)
+        else:
+            _LOGGER.warning("Bambu status entity state not available: %s", self._status_entity)
             return False
 
         self._last_status = state.state
-        _LOGGER.info(
-            "Bambu printer monitor initialized, status: %s",
-            self._last_status,
-        )
+        _LOGGER.info("Bambu printer monitor initialized, status: %s", self._last_status)
 
         if self._last_status == BAMBU_STATUS_RUNNING:
             await self._handle_print_started()
 
+        tracked_entities = {self._status_entity, self._end_time_entity}
+        tracked_entities.discard(None)
+
         @callback
         def _on_state_change(event: Event) -> None:
             entity_id = event.data.get("entity_id")
+            if entity_id not in tracked_entities:
+                return
             if entity_id == self._status_entity:
                 self._hass.async_create_task(self._handle_status_change(event))
+            elif entity_id == self._end_time_entity:
+                self._on_schedule_change()
 
         self._unsub_listener = self._hass.bus.async_listen(
             EVENT_STATE_CHANGED, _on_state_change
         )
+
+        if self._last_status == BAMBU_STATUS_RUNNING:
+            end_time = self.get_end_time()
+            if end_time:
+                _LOGGER.info("Active print detected, end_time: %s", end_time)
+
         return True
 
     async def async_unload(self) -> None:
@@ -230,10 +246,12 @@ class BambuPrinterMonitor:
             return None
 
         try:
-            dt = datetime.fromisoformat(state.state)
-            if dt.tzinfo is None:
-                dt = dt.replace(tzinfo=timezone.utc)
-            return dt
+            # Bambu integration reports local time - interpret as HA's timezone
+            from homeassistant.util import dt as dt_util
+            dt = datetime.fromisoformat(state.state.replace("+00:00", "").replace("Z", ""))
+            local_tz = dt_util.get_default_time_zone()
+            dt = dt.replace(tzinfo=local_tz)
+            return dt.astimezone(timezone.utc)
         except ValueError:
             _LOGGER.debug("Invalid end_time format: %s", state.state)
             return None

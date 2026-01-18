@@ -50,18 +50,17 @@ class PrintAssistCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         unavailability = self._store.get_unavailability_windows()
         active_job = self._store.get_active_job()
 
-        blocking_end = None
-        if self._printer_monitor:
-            be = self._printer_monitor.get_blocking_end_time()
-            if be:
-                blocking_end = be.isoformat()
+        active_job_end = None
+        end = self._estimate_active_job_end()
+        if end:
+            active_job_end = end.isoformat()
 
         data = {
             "jobs": [(j.id, j.plate_id, j.status) for j in queued_jobs],
             "plates": [(p.id, p.priority, p.estimated_duration_seconds) for p in plates],
             "windows": [(w.id, w.start, w.end) for w in unavailability],
             "active": active_job.id if active_job else None,
-            "blocking_end": blocking_end,
+            "active_job_end": active_job_end,
         }
         return hashlib.md5(json.dumps(data, sort_keys=True).encode()).hexdigest()
 
@@ -117,6 +116,11 @@ class PrintAssistCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         plates_by_id = {p.id: p for p in plates}
         unavailability = self._store.get_unavailability_windows()
         active_job_end = self._estimate_active_job_end()
+
+        _LOGGER.debug(
+            "Running scheduler: %d queued jobs, active_job_end=%s",
+            len(queued_jobs), active_job_end
+        )
 
         scheduler = PrintScheduler(
             queued_jobs=queued_jobs,
