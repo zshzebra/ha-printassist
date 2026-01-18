@@ -44,6 +44,11 @@ class PrintAssistCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def set_printer_monitor(self, monitor: BambuPrinterMonitor) -> None:
         self._printer_monitor = monitor
 
+    def get_unknown_print_info(self) -> dict | None:
+        if self._printer_monitor:
+            return self._printer_monitor.get_unknown_print_info()
+        return None
+
     def _compute_input_hash(self) -> str:
         queued_jobs = self._store.get_queued_jobs()
         plates = self._store.get_plates()

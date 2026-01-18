@@ -277,3 +277,14 @@ class BambuPrinterMonitor:
             return end_time
 
         return self._unknown_print_detected_at + timedelta(hours=1)
+
+    def get_unknown_print_info(self) -> dict | None:
+        """Return info about unknown print blocking the scheduler."""
+        if self._unknown_print_detected_at is None:
+            return None
+
+        return {
+            "task_name": self._unknown_print_task_name,
+            "started_at": self._unknown_print_detected_at.isoformat(),
+            "end_time": self.get_blocking_end_time().isoformat(),
+        }

@@ -68,6 +68,7 @@ def ws_get_data(
         "computed_at": computed_at,
         "next_breakpoint": next_breakpoint,
         "unavailability_windows": [asdict(w) for w in store.get_unavailability_windows()],
+        "unknown_print": coordinator.get_unknown_print_info(),
     })
 
 

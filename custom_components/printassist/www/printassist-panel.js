@@ -24,6 +24,7 @@ class PrintAssistPanel extends LitElement {
       _computedAt: { type: String },
       _nextBreakpoint: { type: String },
       _nowLinePosition: { type: Number },
+      _unknownPrint: { type: Object },
     };
   }
 
@@ -453,10 +454,31 @@ class PrintAssistPanel extends LitElement {
         text-overflow: ellipsis;
         white-space: nowrap;
         cursor: pointer;
+        min-width: 0;
       }
 
       .gantt-job.spans {
         background: var(--warning-color);
+      }
+
+      .gantt-job.completed {
+        background: var(--success-color);
+        opacity: 0.7;
+      }
+
+      .gantt-job.printing {
+        background: var(--info-color, #2196f3);
+        animation: pulse 2s ease-in-out infinite;
+      }
+
+      .gantt-job.clipped-right {
+        border-top-right-radius: 0;
+        border-bottom-right-radius: 0;
+      }
+
+      @keyframes pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.7; }
       }
 
       .gantt-now-line {
@@ -640,6 +662,7 @@ class PrintAssistPanel extends LitElement {
     this._nextBreakpoint = null;
     this._nowLinePosition = 0;
     this._animationFrame = null;
+    this._unknownPrint = null;
   }
 
   connectedCallback() {
@@ -678,6 +701,7 @@ class PrintAssistPanel extends LitElement {
       this._unavailability = result.unavailability_windows || [];
       this._computedAt = result.computed_at || null;
       this._nextBreakpoint = result.next_breakpoint || null;
+      this._unknownPrint = result.unknown_print || null;
     } catch (err) {
       console.error("Failed to load PrintAssist data:", err);
       this._projects = [];
@@ -687,6 +711,7 @@ class PrintAssistPanel extends LitElement {
       this._unavailability = [];
       this._computedAt = null;
       this._nextBreakpoint = null;
+      this._unknownPrint = null;
     }
   }
 
@@ -1125,15 +1150,22 @@ class PrintAssistPanel extends LitElement {
         if (jEnd <= start || jStart >= end) return null;
 
         const clampedStart = jStart < start ? start : jStart;
-        const clampedEnd = jEnd > end ? end : jEnd;
+        const isClippedRight = jEnd > end;
 
         const leftPct = ((clampedStart - start) / (end - start)) * 100;
-        const widthPct = ((clampedEnd - clampedStart) / (end - start)) * 100;
+
+        const classes = ["gantt-job"];
+        if (job.spans_unavailability) classes.push("spans");
+        if (isClippedRight) classes.push("clipped-right");
+
+        const style = isClippedRight
+          ? `left: ${leftPct}%; right: 0`
+          : `left: ${leftPct}%; width: ${((jEnd - clampedStart) / (end - start)) * 100}%`;
 
         return html`
           <div
-            class="gantt-job ${job.spans_unavailability ? "spans" : ""}"
-            style="left: ${leftPct}%; width: ${widthPct}%"
+            class="${classes.join(" ")}"
+            style="${style}"
             title="${job.plate_name} (${this._formatTime(job.scheduled_start)} - ${this._formatTime(job.scheduled_end)})"
           >
             ${job.thumbnail_path ? html`<img class="gantt-job-thumbnail" src="${job.thumbnail_path}" />` : ""}
@@ -1142,6 +1174,82 @@ class PrintAssistPanel extends LitElement {
         `;
       })
       .filter(Boolean);
+
+    const historyBlocks = this._jobs
+      .filter((job) => job.status === "completed" || job.status === "printing")
+      .filter((job) => job.started_at)
+      .map((job) => {
+        const plate = this._plates.find((p) => p.id === job.plate_id);
+        const jStart = new Date(job.started_at);
+        const jEnd = job.ended_at
+          ? new Date(job.ended_at)
+          : new Date(jStart.getTime() + (plate?.estimated_duration_seconds || 3600) * 1000);
+        if (jEnd <= start || jStart >= end) return null;
+
+        const clampedStart = jStart < start ? start : jStart;
+        const isClippedRight = jEnd > end;
+
+        const leftPct = ((clampedStart - start) / (end - start)) * 100;
+
+        const plateName = plate?.name || "Unknown";
+        const timeLabel = job.ended_at
+          ? `${this._formatTime(job.started_at)} - ${this._formatTime(job.ended_at)}`
+          : `Started ${this._formatTime(job.started_at)}`;
+
+        const classes = ["gantt-job"];
+        if (job.status === "printing") classes.push("printing");
+        else classes.push("completed");
+        if (isClippedRight) classes.push("clipped-right");
+
+        const style = isClippedRight
+          ? `left: ${leftPct}%; right: 0`
+          : `left: ${leftPct}%; width: ${((jEnd - clampedStart) / (end - start)) * 100}%`;
+
+        return html`
+          <div
+            class="${classes.join(" ")}"
+            style="${style}"
+            title="${plateName} (${timeLabel})"
+          >
+            ${plate?.thumbnail_path ? html`<img class="gantt-job-thumbnail" src="${plate.thumbnail_path}" />` : ""}
+            ${plateName}
+          </div>
+        `;
+      })
+      .filter(Boolean);
+
+    // Show unknown print if one is blocking the scheduler
+    let unknownPrintBlock = "";
+    if (this._unknownPrint) {
+      const jStart = new Date(this._unknownPrint.started_at);
+      const jEnd = new Date(this._unknownPrint.end_time);
+      if (jEnd > start && jStart < end) {
+        const clampedStart = jStart < start ? start : jStart;
+        const isClippedRight = jEnd > end;
+
+        const leftPct = ((clampedStart - start) / (end - start)) * 100;
+
+        const classes = ["gantt-job", "printing"];
+        if (isClippedRight) classes.push("clipped-right");
+
+        const taskName = this._unknownPrint.task_name || "Unknown Print";
+        const timeLabel = `Started ${this._formatTime(this._unknownPrint.started_at)}`;
+
+        const style = isClippedRight
+          ? `left: ${leftPct}%; right: 0`
+          : `left: ${leftPct}%; width: ${((jEnd - clampedStart) / (end - start)) * 100}%`;
+
+        unknownPrintBlock = html`
+          <div
+            class="${classes.join(" ")}"
+            style="${style}"
+            title="${taskName} (${timeLabel})"
+          >
+            ${taskName}
+          </div>
+        `;
+      }
+    }
 
     const now = new Date();
     let nowLineHtml = "";
@@ -1186,6 +1294,8 @@ class PrintAssistPanel extends LitElement {
           </div>
           <div class="gantt-row" style="grid-template-columns: repeat(${hours}, ${cellWidth}px)">
             <div class="gantt-row-label">Print Queue</div>
+            ${historyBlocks}
+            ${unknownPrintBlock}
             ${jobBlocks}
             ${nowLineHtml}
           </div>
