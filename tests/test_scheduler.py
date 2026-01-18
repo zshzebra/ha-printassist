@@ -100,7 +100,7 @@ class TestPrintScheduler:
         assert result.jobs[0].spans_unavailability is False
         assert result.jobs[0].scheduled_end <= utc(2024, 1, 15, 22, 0, 0)
 
-    def test_does_not_fit_schedules_after_short_unavail(self):
+    def test_does_not_fit_spans_short_unavail(self):
         now = utc(2024, 1, 15, 20, 0, 0)
         window = make_window("w1", utc(2024, 1, 15, 22, 0, 0), utc(2024, 1, 15, 23, 30, 0))
 
@@ -110,7 +110,8 @@ class TestPrintScheduler:
 
         result = scheduler.calculate_schedule()
         assert len(result.jobs) == 1
-        assert result.jobs[0].scheduled_start >= utc(2024, 1, 15, 23, 30, 0)
+        assert result.jobs[0].scheduled_start == now
+        assert result.jobs[0].spans_unavailability is True
 
     def test_selects_fitting_job_over_priority(self):
         now = utc(2024, 1, 15, 20, 0, 0)

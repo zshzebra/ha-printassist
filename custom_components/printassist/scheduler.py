@@ -222,7 +222,22 @@ class PrintScheduler:
                     cursor = end_time
                     remaining.remove((job, plate, duration))
                 else:
-                    cursor = next_unavail[1]
+                    job, plate, duration = remaining[0]
+                    end_time = cursor + timedelta(seconds=duration)
+                    schedule.append(ScheduledJob(
+                        job_id=job.id,
+                        plate_id=plate.id,
+                        plate_name=plate.name,
+                        plate_number=plate.plate_number,
+                        source_filename=plate.source_filename,
+                        scheduled_start=cursor,
+                        scheduled_end=end_time,
+                        estimated_duration_seconds=duration,
+                        spans_unavailability=True,
+                        thumbnail_path=plate.thumbnail_path,
+                    ))
+                    cursor = end_time
+                    remaining.remove((job, plate, duration))
             else:
                 for job, plate, duration in remaining:
                     end_time = cursor + timedelta(seconds=duration)
