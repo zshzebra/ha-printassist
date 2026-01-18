@@ -1,10 +1,12 @@
 """Sensors for PrintAssist."""
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any
 
-from homeassistant.components.sensor import SensorEntity
+from homeassistant.components.sensor import SensorDeviceClass, SensorEntity
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import UnitOfTime
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -24,6 +26,10 @@ async def async_setup_entry(
         PrintAssistQueueCountSensor(coordinator),
         PrintAssistNextPrintSensor(coordinator),
         PrintAssistActiveJobSensor(coordinator),
+        PrintAssistTimeToChangeSensor(coordinator),
+        PrintAssistScheduleSensor(coordinator),
+        PrintAssistPartsPrintedSensor(coordinator),
+        PrintAssistTotalPartsSensor(coordinator),
     ])
 
 
@@ -62,6 +68,15 @@ class PrintAssistNextPrintSensor(PrintAssistSensorBase):
         return next_plate.name if next_plate else None
 
     @property
+    def entity_picture(self) -> str | None:
+        if not self.coordinator.data:
+            return None
+        next_plate = self.coordinator.data.get("next_plate")
+        if next_plate and next_plate.thumbnail_path:
+            return next_plate.thumbnail_path
+        return None
+
+    @property
     def extra_state_attributes(self) -> dict[str, Any]:
         if not self.coordinator.data:
             return {}
@@ -75,6 +90,7 @@ class PrintAssistNextPrintSensor(PrintAssistSensorBase):
             "project_id": next_plate.project_id,
             "estimated_duration_seconds": next_plate.estimated_duration_seconds,
             "thumbnail": next_plate.thumbnail_path,
+            "gcode_path": next_plate.gcode_path,
         }
 
 
@@ -91,6 +107,15 @@ class PrintAssistActiveJobSensor(PrintAssistSensorBase):
         return active_plate.name if active_plate else None
 
     @property
+    def entity_picture(self) -> str | None:
+        if not self.coordinator.data:
+            return None
+        active_plate = self.coordinator.data.get("active_plate")
+        if active_plate and active_plate.thumbnail_path:
+            return active_plate.thumbnail_path
+        return None
+
+    @property
     def extra_state_attributes(self) -> dict[str, Any]:
         if not self.coordinator.data:
             return {}
@@ -104,4 +129,87 @@ class PrintAssistActiveJobSensor(PrintAssistSensorBase):
             "started_at": active_job.started_at,
             "plate_name": active_plate.name,
             "gcode_path": active_plate.gcode_path,
+            "thumbnail": active_plate.thumbnail_path,
         }
+
+
+class PrintAssistTimeToChangeSensor(PrintAssistSensorBase):
+    def __init__(self, coordinator: PrintAssistCoordinator) -> None:
+        super().__init__(coordinator, "time_to_next_change", "Time to Next Change")
+        self._attr_icon = "mdi:timer-outline"
+        self._attr_device_class = SensorDeviceClass.DURATION
+        self._attr_native_unit_of_measurement = UnitOfTime.MINUTES
+
+    @property
+    def native_value(self) -> int | None:
+        end_time = self.coordinator.get_active_job_end_time()
+        if not end_time:
+            return None
+        now = datetime.now(timezone.utc)
+        if end_time <= now:
+            return 0
+        return int((end_time - now).total_seconds() / 60)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        end_time = self.coordinator.get_active_job_end_time()
+        if not end_time:
+            return {}
+        return {"end_time": end_time.isoformat()}
+
+
+class PrintAssistScheduleSensor(PrintAssistSensorBase):
+    def __init__(self, coordinator: PrintAssistCoordinator) -> None:
+        super().__init__(coordinator, "schedule", "Schedule")
+        self._attr_icon = "mdi:calendar-clock"
+        self._attr_native_unit_of_measurement = "jobs"
+
+    @property
+    def native_value(self) -> int:
+        if not self.coordinator.data:
+            return 0
+        return len(self.coordinator.data.get("schedule", []))
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        if not self.coordinator.data:
+            return {}
+        return {"jobs": self.coordinator.data.get("schedule", [])}
+
+
+class PrintAssistPartsPrintedSensor(PrintAssistSensorBase):
+    def __init__(self, coordinator: PrintAssistCoordinator) -> None:
+        super().__init__(coordinator, "parts_printed", "Parts Printed")
+        self._attr_icon = "mdi:check-circle-outline"
+        self._attr_native_unit_of_measurement = "parts"
+
+    @property
+    def native_value(self) -> int:
+        if not self.coordinator.data:
+            return 0
+        return self.coordinator.data.get("parts_printed", 0)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        if not self.coordinator.data:
+            return {}
+        return {"by_project": self.coordinator.data.get("progress_by_project", [])}
+
+
+class PrintAssistTotalPartsSensor(PrintAssistSensorBase):
+    def __init__(self, coordinator: PrintAssistCoordinator) -> None:
+        super().__init__(coordinator, "total_parts", "Total Parts")
+        self._attr_icon = "mdi:cube-outline"
+        self._attr_native_unit_of_measurement = "parts"
+
+    @property
+    def native_value(self) -> int:
+        if not self.coordinator.data:
+            return 0
+        return self.coordinator.data.get("total_parts", 0)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        if not self.coordinator.data:
+            return {}
+        return {"by_project": self.coordinator.data.get("progress_by_project", [])}

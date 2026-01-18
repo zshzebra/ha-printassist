@@ -27,7 +27,7 @@ if TYPE_CHECKING:
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS = [Platform.SENSOR]
+PLATFORMS = [Platform.SENSOR, Platform.BUTTON, Platform.IMAGE]
 
 
 @websocket_api.websocket_command({vol.Required("type"): "printassist/get_data"})

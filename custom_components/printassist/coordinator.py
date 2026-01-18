@@ -83,6 +83,10 @@ class PrintAssistCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._schedule_result = None
         self._last_input_hash = None
 
+    def get_active_job_end_time(self) -> datetime | None:
+        """Public accessor for active job end time."""
+        return self._estimate_active_job_end()
+
     def _estimate_active_job_end(self) -> datetime | None:
         if self._printer_monitor:
             blocking_end = self._printer_monitor.get_blocking_end_time()
@@ -166,6 +170,20 @@ class PrintAssistCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         next_scheduled = schedule_result.jobs[0] if schedule_result.jobs else None
 
+        parts_printed = 0
+        total_parts = 0
+        progress_by_project = []
+        for project in self._store.get_projects():
+            completed, total = self._store.get_project_progress(project.id)
+            if completed < total:
+                parts_printed += completed
+                total_parts += total
+                progress_by_project.append({
+                    "name": project.name,
+                    "completed": completed,
+                    "total": total,
+                })
+
         return {
             "projects": self._store.get_projects(),
             "plates": self._store.get_plates(),
@@ -180,4 +198,7 @@ class PrintAssistCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "computed_at": schedule_result.computed_at.isoformat(),
             "next_breakpoint": schedule_result.next_breakpoint.isoformat() if schedule_result.next_breakpoint else None,
             "unavailability_windows": self._store.get_unavailability_windows(),
+            "parts_printed": parts_printed,
+            "total_parts": total_parts,
+            "progress_by_project": progress_by_project,
         }
